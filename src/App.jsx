@@ -480,7 +480,7 @@ function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCo
           <div style={{display:"flex",alignItems:"center",gap:8}}>
             <button onClick={()=>{
               if(window.confirm(`¿Borrar todos los datos de ${meta.label} en este mes?`))
-                onChange([emptyRow()]);
+                onChange(_prev => [emptyRow()]);
             }} style={{
               background:"transparent",border:`1px solid ${C.border}`,
               color:C.textMuted,fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:500,
@@ -563,21 +563,21 @@ function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCo
                   </td>
                   <td style={{...tdSt,textAlign:"right"}}>
                     <input value={row.shares} onChange={e=>updateRow(row.id,"shares",e.target.value)}
-                      placeholder="0" type="number" style={{...inpSt,textAlign:"right",width:72}}
+                      placeholder="0" type="text" inputMode="decimal" style={{...inpSt,textAlign:"right",width:72}}
                       onFocus={e=>e.target.style.background=C.surface}
                       onBlur={e=>e.target.style.background="transparent"}
                     />
                   </td>
                   <td style={{...tdSt,textAlign:"right"}}>
                     <input value={row.buyPrice} onChange={e=>updateRow(row.id,"buyPrice",e.target.value)}
-                      placeholder="0.00" type="number" style={{...inpSt,textAlign:"right",width:90}}
+                      placeholder="0.00" type="text" inputMode="decimal" style={{...inpSt,textAlign:"right",width:90}}
                       onFocus={e=>e.target.style.background=C.surface}
                       onBlur={e=>e.target.style.background="transparent"}
                     />
                   </td>
                   <td style={{...tdSt,textAlign:"right"}}>
                     <input value={row.currentPrice} onChange={e=>updateRow(row.id,"currentPrice",e.target.value)}
-                      placeholder="0.00" type="number" style={{...inpSt,textAlign:"right",width:90}}
+                      placeholder="0.00" type="text" inputMode="decimal" style={{...inpSt,textAlign:"right",width:90}}
                       onFocus={e=>e.target.style.background=C.surface}
                       onBlur={e=>e.target.style.background="transparent"}
                     />
@@ -642,6 +642,63 @@ function DonutChart({data}){
   );
 }
 
+// ── Cash field component (must be top-level to avoid remount on each render) ──
+const CASH_INPUT_ST = {
+  background:"transparent", border:"none", outline:"none",
+  color:"#f0f0f5", fontFamily:"'DM Mono',monospace",
+  fontSize:14, fontWeight:500, width:"100%",
+};
+
+function CashField({ label, fieldKey, sectionColor, value, onChange, dispValue, dispCurrency }) {
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:5,minWidth:150}}>
+      <div style={{display:"flex",alignItems:"center",gap:6}}>
+        <div style={{width:7,height:7,borderRadius:2,background:sectionColor,flexShrink:0}}/>
+        <span style={{fontSize:11,color:"#5a5a72",fontWeight:500,letterSpacing:"0.06em",textTransform:"uppercase"}}>{label}</span>
+      </div>
+      <div style={{
+        display:"flex",alignItems:"center",gap:6,
+        background:"#131316",border:"1px solid #26262e",borderRadius:9,
+        padding:"7px 12px",transition:"border-color 0.2s",
+      }}
+        onFocus={e=>e.currentTarget.style.borderColor=sectionColor}
+        onBlur={e=>e.currentTarget.style.borderColor="#26262e"}
+      >
+        <span style={{color:"#5a5a72",fontSize:13,fontFamily:"'DM Mono',monospace"}}>$</span>
+        <input
+          type="text" inputMode="decimal"
+          value={value}
+          onChange={onChange}
+          placeholder="0,00"
+          style={CASH_INPUT_ST}
+        />
+      </div>
+      {dispValue!==null&&dispValue!==undefined&&(
+        <div style={{fontSize:10,color:"#5a5a72",fontFamily:"'DM Mono',monospace",paddingLeft:2}}>
+          {dispCurrency} {fmt(dispValue)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CashSectionTotal({ label, color, total, totalDisp, dispCurrency }) {
+  if (!total || total === 0) return null;
+  return (
+    <div style={{textAlign:"right",minWidth:110}}>
+      <div style={{color:"#5a5a72",fontSize:10,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:4}}>Total {label}</div>
+      <div style={{fontFamily:"'DM Mono',monospace",fontSize:16,fontWeight:600,color}}>
+        {fmt(total)} <span style={{fontSize:10,color:"#5a5a72"}}>{label==="Pesos"?"ARS":"USD"}</span>
+      </div>
+      {totalDisp!==null&&totalDisp!==undefined&&(
+        <div style={{fontSize:11,color:"#5a5a72",fontFamily:"'DM Mono',monospace",marginTop:2}}>
+          ≈ {fmt(totalDisp)} {dispCurrency}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Cash panel ───────────────────────────────────────────────────────────────
 function CashPanel({ cash, setCash, showARS, fxRates }) {
   const mepRate = parseFloat(fxRates?.mep)||null;
@@ -666,61 +723,7 @@ function CashPanel({ cash, setCash, showARS, fxRates }) {
   const totalPesosDisp   = showARS ? totalPesos   : (mepRate ? totalPesos/mepRate : null);
   const totalDolaresDisp = showARS ? (cclRate ? totalDolares*cclRate : null) : totalDolares;
 
-  const inputSt = {
-    background:"transparent", border:"none", outline:"none",
-    color:"#f0f0f5", fontFamily:"'DM Mono',monospace",
-    fontSize:14, fontWeight:500, width:"100%",
-  };
 
-  function Field({ label, fieldKey, sectionColor, toDisp }) {
-    const val = parseFloat(cash[fieldKey])||0;
-    const disp = val > 0 ? toDisp(cash[fieldKey]) : null;
-    return (
-      <div style={{display:"flex",flexDirection:"column",gap:5,minWidth:150}}>
-        <div style={{display:"flex",alignItems:"center",gap:6}}>
-          <div style={{width:7,height:7,borderRadius:2,background:sectionColor,flexShrink:0}}/>
-          <span style={{fontSize:11,color:"#5a5a72",fontWeight:500,letterSpacing:"0.06em",textTransform:"uppercase"}}>{label}</span>
-        </div>
-        <div style={{
-          display:"flex",alignItems:"center",gap:6,
-          background:"#131316",border:"1px solid #26262e",borderRadius:9,
-          padding:"7px 12px",transition:"border-color 0.2s",
-        }}
-          onFocus={e=>e.currentTarget.style.borderColor=sectionColor}
-          onBlur={e=>e.currentTarget.style.borderColor="#26262e"}
-        >
-          <span style={{color:"#5a5a72",fontSize:13,fontFamily:"'DM Mono',monospace"}}>$</span>
-          <input
-            type="number" value={cash[fieldKey]}
-            onChange={e=>setCash(c=>({...c,[fieldKey]:e.target.value}))}
-            placeholder="0,00" style={inputSt}
-          />
-        </div>
-        {disp!==null&&(
-          <div style={{fontSize:10,color:"#5a5a72",fontFamily:"'DM Mono',monospace",paddingLeft:2}}>
-            {dispCurrency} {fmt(disp)}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-
-  function SectionTotal({ label, color, total, totalDisp }) {
-    return total > 0 ? (
-      <div style={{textAlign:"right",minWidth:110}}>
-        <div style={{color:"#5a5a72",fontSize:10,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:4}}>Total {label}</div>
-        <div style={{fontFamily:"'DM Mono',monospace",fontSize:16,fontWeight:600,color}}>
-          {fmt(total)} <span style={{fontSize:10,color:"#5a5a72"}}>{label==="Pesos"?"ARS":"USD"}</span>
-        </div>
-        {totalDisp!==null&&(
-          <div style={{fontSize:11,color:"#5a5a72",fontFamily:"'DM Mono',monospace",marginTop:2}}>
-            ≈ {fmt(totalDisp)} {dispCurrency}
-          </div>
-        )}
-      </div>
-    ) : null;
-  }
 
   return (
     <div style={{display:"flex",gap:16,marginBottom:28,flexWrap:"wrap"}}>
@@ -740,11 +743,15 @@ function CashPanel({ cash, setCash, showARS, fxRates }) {
               <div style={{color:"#5a5a72",fontSize:11,marginTop:2}}>Efectivo · ARS</div>
             </div>
           </div>
-          <SectionTotal label="Pesos" color="#22c55e" total={totalPesos} totalDisp={!showARS&&totalPesosDisp!==null?totalPesosDisp:null}/>
+          <CashSectionTotal label="Pesos" color="#22c55e" total={totalPesos} totalDisp={!showARS&&totalPesosDisp!==null?totalPesosDisp:null} dispCurrency={dispCurrency}/>
         </div>
         <div style={{display:"flex",alignItems:"flex-start",gap:14,flexWrap:"wrap",padding:"16px 20px"}}>
-          <Field label="Ualá"       fieldKey="uala" sectionColor="#22c55e" toDisp={toDisplayPesos}/>
-          <Field label="MP / Banco" fieldKey="mp"   sectionColor="#22c55e" toDisp={toDisplayPesos}/>
+          <CashField label="Ualá" fieldKey="uala" sectionColor="#22c55e"
+            value={cash.uala} onChange={e=>setCash(c=>({...c,uala:e.target.value}))}
+            dispValue={parseFloat(cash.uala)>0?toDisplayPesos(cash.uala):null} dispCurrency={dispCurrency}/>
+          <CashField label="MP / Banco" fieldKey="mp" sectionColor="#22c55e"
+            value={cash.mp} onChange={e=>setCash(c=>({...c,mp:e.target.value}))}
+            dispValue={parseFloat(cash.mp)>0?toDisplayPesos(cash.mp):null} dispCurrency={dispCurrency}/>
         </div>
       </div>
 
@@ -763,12 +770,18 @@ function CashPanel({ cash, setCash, showARS, fxRates }) {
               <div style={{color:"#5a5a72",fontSize:11,marginTop:2}}>Efectivo · USD</div>
             </div>
           </div>
-          <SectionTotal label="Dólares" color="#38bdf8" total={totalDolares} totalDisp={showARS&&totalDolaresDisp!==null?totalDolaresDisp:null}/>
+          <CashSectionTotal label="Dólares" color="#38bdf8" total={totalDolares} totalDisp={showARS&&totalDolaresDisp!==null?totalDolaresDisp:null} dispCurrency={dispCurrency}/>
         </div>
         <div style={{display:"flex",alignItems:"flex-start",gap:14,flexWrap:"wrap",padding:"16px 20px"}}>
-          <Field label="Físicos"        fieldKey="fisicos"      sectionColor="#38bdf8" toDisp={toDisplayDolares}/>
-          <Field label="Online - Banco" fieldKey="online_banco" sectionColor="#38bdf8" toDisp={toDisplayDolares}/>
-          <Field label="Online - IOL"   fieldKey="online_iol"   sectionColor="#38bdf8" toDisp={toDisplayDolares}/>
+          <CashField label="Físicos" fieldKey="fisicos" sectionColor="#38bdf8"
+            value={cash.fisicos} onChange={e=>setCash(c=>({...c,fisicos:e.target.value}))}
+            dispValue={parseFloat(cash.fisicos)>0?toDisplayDolares(cash.fisicos):null} dispCurrency={dispCurrency}/>
+          <CashField label="Online - Banco" fieldKey="online_banco" sectionColor="#38bdf8"
+            value={cash.online_banco} onChange={e=>setCash(c=>({...c,online_banco:e.target.value}))}
+            dispValue={parseFloat(cash.online_banco)>0?toDisplayDolares(cash.online_banco):null} dispCurrency={dispCurrency}/>
+          <CashField label="Online - IOL" fieldKey="online_iol" sectionColor="#38bdf8"
+            value={cash.online_iol} onChange={e=>setCash(c=>({...c,online_iol:e.target.value}))}
+            dispValue={parseFloat(cash.online_iol)>0?toDisplayDolares(cash.online_iol):null} dispCurrency={dispCurrency}/>
         </div>
       </div>
 
@@ -1366,7 +1379,8 @@ export default function PortfolioTracker(){
                 >
                   <span style={{color:C.textMuted,fontSize:13,fontFamily:"'DM Mono',monospace"}}>{prefix}</span>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="decimal"
                     value={fxRates[key]}
                     onChange={e=>setFxRates(r=>({...r,[key]:e.target.value}))}
                     placeholder="0,00"
@@ -1422,7 +1436,7 @@ export default function PortfolioTracker(){
 
           {/* Footer */}
           <div style={{borderTop:`1px solid ${C.border}`,paddingTop:18,marginTop:4,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <span style={{fontSize:11,color:C.textMuted}}>Portfolio Tracker · {MONTHS[month]} {year}</span>
+            <span style={{fontSize:11,color:C.textMuted}}>Portfolio Tracker v2 · {MONTHS[month]} {year}</span>
             <span style={{fontSize:11,color:C.textMuted}}>CEDEARs, Merval y Crypto: lookup local · Datos guardados en localStorage</span>
           </div>
         </main>
