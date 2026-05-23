@@ -1,6 +1,19 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 
+// ─────────────────────────────────────────────────────────────────────────────
+// VERSION HISTORY
+// v1.0  Initial release — CEDEARs, Merval, Crypto sections, monthly navigation,
+//       localStorage persistence, ARS/USD toggle, FX rates panel
+// v1.1  Added Pesos & Dólares cash panels, Grand Totals row, per-section pie charts
+// v1.2  Added sort buttons (V. Actual / P&L), Compare mode with asset delta cards,
+//       Export/Import JSON, fixed row.reduce bug, fixed cash input focus bug
+// v2.0  Full UI refresh: Nunito font, improved cards, collapsible compare panels
+//       with NUEVO/SALIÓ badges, visual delta bars, section total deltas
+// ─────────────────────────────────────────────────────────────────────────────
+const APP_VERSION = "2.0";
+const APP_BUILD   = new Date("2026-05-23").toISOString().slice(0,10);
+
 
 const FONTS = `
   @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600&family=DM+Mono:wght@400;500&family=Nunito:wght@600;700;800&display=swap');
@@ -325,6 +338,180 @@ function SortButton({ active, dir, onClick }) {
       <span style={{ fontSize: 7, color: active && dir === "asc"  ? "#fff" : "#888", lineHeight: 1 }}>▲</span>
       <span style={{ fontSize: 7, color: active && dir === "desc" ? "#fff" : "#888", lineHeight: 1 }}>▼</span>
     </button>
+  );
+}
+
+// ── Comparison summary panel ─────────────────────────────────────────────────
+function ComparePanel({ sectionKey, currentData, prevData, fxRates, showARS, prevMonthLabel }) {
+  const meta = SECTION_META[sectionKey];
+  const prev = Array.isArray(prevData) ? prevData : [];
+  const curr = Array.isArray(currentData) ? currentData : [];
+
+  // FX helpers — same logic as SectionTable
+  const FX_KEY_MAP = { cedears:"ccl", pesos:"mep", crypto:"crypto" };
+  const nativeIsARS = meta.currency === "ARS";
+  const dispCurrency = showARS ? "ARS" : "USD";
+  const fxRate = parseFloat(fxRates?.[FX_KEY_MAP[sectionKey]]) || null;
+  const needsConversion = showARS !== nativeIsARS;
+  function toDisplay(v) {
+    if (v === null || v === undefined) return null;
+    if (!needsConversion) return v;
+    if (!fxRate) return null;
+    if (showARS && !nativeIsARS) return v * fxRate;
+    if (!showARS && nativeIsARS) return v / fxRate;
+    return v;
+  }
+  const noFx = needsConversion && !fxRate;
+
+  // Build comparison rows — union of all tickers from both months
+  const allTickers = [...new Set([
+    ...curr.filter(r=>r.ticker).map(r=>r.ticker),
+    ...prev.filter(r=>r.ticker).map(r=>r.ticker),
+  ])];
+
+  if (allTickers.length === 0) return null;
+
+  const rows = allTickers.map(ticker => {
+    const c = curr.find(r=>r.ticker===ticker) || null;
+    const p = prev.find(r=>r.ticker===ticker) || null;
+    const { value: cVal, pnlAmt: cPnl } = c ? calcPnL(c) : { value:null, pnlAmt:null };
+    const { value: pVal, pnlAmt: pPnl } = p ? calcPnL(p) : { value:null, pnlAmt:null };
+    const cValDisp = toDisplay(cVal);
+    const pValDisp = toDisplay(pVal);
+    const deltaVal = (cValDisp!==null && pValDisp!==null) ? cValDisp - pValDisp : null;
+    const deltaPct = (deltaVal!==null && pValDisp!==null && pValDisp!==0) ? (deltaVal/pValDisp)*100 : null;
+    const name = c?.name || p?.name || ticker;
+    const isNew  = !p && !!c;
+    const isGone = !!p && !c;
+    return { ticker, name, pValDisp, cValDisp, deltaVal, deltaPct, isNew, isGone };
+  });
+
+  // Section-level totals
+  const totalPrev = rows.reduce((s,r) => s + (r.pValDisp||0), 0);
+  const totalCurr = rows.reduce((s,r) => s + (r.cValDisp||0), 0);
+  const totalDelta = totalCurr - totalPrev;
+  const totalDeltaPct = totalPrev > 0 ? (totalDelta/totalPrev)*100 : null;
+
+  return (
+    <div style={{
+      border:`1px solid ${meta.color}28`,
+      borderTop:`2px solid ${meta.color}`,
+      borderRadius:"0 0 14px 14px",
+      background:`${meta.color}06`,
+      padding:"14px 18px",
+      marginTop:-14,
+      marginBottom:20,
+      animation:"fadeUp 0.3s ease forwards",
+    }}>
+      {/* Panel header */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,flexWrap:"wrap",gap:8}}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:14}}>⇄</span>
+          <span style={{fontSize:11,fontWeight:600,color:meta.color,letterSpacing:"0.08em",textTransform:"uppercase"}}>
+            Variación vs {prevMonthLabel}
+          </span>
+        </div>
+        {/* Section total delta */}
+        {totalPrev>0&&(
+          <div style={{display:"flex",alignItems:"center",gap:12}}>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontSize:10,color:C.textMuted,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:2}}>Mes anterior</div>
+              <div style={{fontFamily:"'DM Mono',monospace",fontSize:13,color:C.textSub}}>{noFx?"—":fmt(totalPrev)} {dispCurrency}</div>
+            </div>
+            <div style={{color:C.textMuted,fontSize:16}}>→</div>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontSize:10,color:C.textMuted,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:2}}>Este mes</div>
+              <div style={{fontFamily:"'DM Mono',monospace",fontSize:13,color:C.text}}>{noFx?"—":fmt(totalCurr)} {dispCurrency}</div>
+            </div>
+            {totalDeltaPct!==null&&!noFx&&(
+              <div style={{
+                background:totalDelta>=0?C.greenBg:C.redBg,
+                border:`1px solid ${totalDelta>=0?C.green:C.red}40`,
+                borderRadius:8,padding:"6px 12px",textAlign:"center",minWidth:90,
+              }}>
+                <div style={{fontFamily:"'DM Mono',monospace",fontSize:13,fontWeight:700,color:totalDelta>=0?C.green:C.red}}>
+                  {totalDelta>=0?"+":""}{fmtPct(totalDeltaPct)}
+                </div>
+                <div style={{fontFamily:"'DM Mono',monospace",fontSize:10,color:totalDelta>=0?C.green:C.red,marginTop:1}}>
+                  {totalDelta>=0?"+":""}{fmt(totalDelta)} {dispCurrency}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Asset cards */}
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {rows.map(r => {
+          const pos = r.deltaVal!==null && r.deltaVal >= 0;
+          const col = r.deltaVal!==null ? (pos ? C.green : C.red) : C.textMuted;
+          return (
+            <div key={r.ticker} style={{
+              display:"flex",alignItems:"center",gap:12,
+              background:C.card,borderRadius:10,padding:"10px 14px",
+              border:`1px solid ${r.isNew?C.green:r.isGone?C.red:C.border}`,
+              flexWrap:"wrap",
+            }}>
+              {/* Ticker + name */}
+              <div style={{minWidth:140,flex:"0 0 auto"}}>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <span style={{fontFamily:"'DM Mono',monospace",fontSize:13,fontWeight:700,color:meta.color}}>{r.ticker}</span>
+                  {r.isNew  && <span style={{fontSize:9,background:`${C.green}20`,color:C.green,  borderRadius:4,padding:"1px 5px",fontWeight:600}}>NUEVO</span>}
+                  {r.isGone && <span style={{fontSize:9,background:`${C.red}20`,  color:C.red,    borderRadius:4,padding:"1px 5px",fontWeight:600}}>SALIÓ</span>}
+                </div>
+                <div style={{fontSize:11,color:C.textMuted,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:130}}>{r.name}</div>
+              </div>
+
+              {/* Prev value */}
+              <div style={{textAlign:"right",minWidth:90}}>
+                <div style={{fontSize:9,color:C.textMuted,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:2}}>{prevMonthLabel}</div>
+                <div style={{fontFamily:"'DM Mono',monospace",fontSize:12,color:C.textSub}}>
+                  {r.pValDisp!==null&&!noFx ? `${fmt(r.pValDisp)} ${dispCurrency}` : "—"}
+                </div>
+              </div>
+
+              <div style={{color:C.textMuted,fontSize:13}}>→</div>
+
+              {/* Current value */}
+              <div style={{textAlign:"right",minWidth:90}}>
+                <div style={{fontSize:9,color:C.textMuted,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:2}}>Este mes</div>
+                <div style={{fontFamily:"'DM Mono',monospace",fontSize:12,color:C.text}}>
+                  {r.cValDisp!==null&&!noFx ? `${fmt(r.cValDisp)} ${dispCurrency}` : "—"}
+                </div>
+              </div>
+
+              {/* Delta */}
+              <div style={{marginLeft:"auto",textAlign:"right",minWidth:100}}>
+                {r.deltaVal!==null&&!noFx ? (
+                  <>
+                    <div style={{fontFamily:"'DM Mono',monospace",fontSize:13,fontWeight:700,color:col}}>
+                      {r.deltaVal>=0?"+":""}{fmtPct(r.deltaPct)}
+                    </div>
+                    <div style={{fontFamily:"'DM Mono',monospace",fontSize:11,color:col,marginTop:1}}>
+                      {r.deltaVal>=0?"+":""}{fmt(r.deltaVal)} {dispCurrency}
+                    </div>
+                  </>
+                ) : (
+                  <span style={{color:C.textMuted,fontSize:12}}>{noFx?"Sin TC":"—"}</span>
+                )}
+              </div>
+
+              {/* Visual bar */}
+              {r.deltaVal!==null&&r.pValDisp&&r.pValDisp>0&&!noFx&&(
+                <div style={{width:"100%",height:3,background:C.border,borderRadius:99,marginTop:4}}>
+                  <div style={{
+                    width:`${Math.min(Math.abs((r.deltaVal/r.pValDisp)*100),100)}%`,
+                    height:"100%",background:col,borderRadius:99,
+                    transition:"width 0.5s ease",
+                  }}/>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -851,6 +1038,7 @@ export default function PortfolioTracker(){
   },[data,fxRates,cash,year,month]);
 
   function prevM(){if(month===0){setMonth(11);setYear(y=>y-1);}else setMonth(m=>m-1);}
+  const prevMonthLabel = `${MONTHS[month===0?11:month-1]} ${month===0?year-1:year}`;
   function nextM(){if(month===11){setMonth(0);setYear(y=>y+1);}else setMonth(m=>m+1);}
   // Supports both plain arrays and functional updaters (prev => newRows)
   function updateSection(key, rowsOrUpdater) {
@@ -1412,14 +1600,14 @@ export default function PortfolioTracker(){
               display:"flex",alignItems:"center",gap:10,fontSize:12,color:C.accent,fontWeight:500,
             }}>
               <span>⇄</span>
-              <span>Comparando con <strong>{MONTHS[month===0?11:month-1]} {month===0?year-1:year}</strong> · Columna "Δ Mes Ant." muestra variación de P&amp;L</span>
+              <span>Comparando con <strong>{prevMonthLabel}</strong> · Las variaciones se muestran debajo de cada sección</span>
             </div>
           )}
 
           {/* ── Cash panels ── */}
           <CashPanel cash={cash} setCash={setCash} showARS={showARS} fxRates={fxRates}/>
 
-          {/* ── Tables ── */}
+          {/* ── Tables + Compare panels ── */}
           {["cedears","pesos","crypto"].map((s,i)=>(
             <div key={s} className="fu" style={{animationDelay:`${i*70}ms`}}>
               <SectionTable
@@ -1431,12 +1619,29 @@ export default function PortfolioTracker(){
                 fxRates={fxRates}
                 showARS={showARS}
               />
+              {showCompare&&(
+                <ComparePanel
+                  sectionKey={s}
+                  currentData={Array.isArray(data[s])?data[s]:[]}
+                  prevData={prevData?prevData[s]:[]}
+                  fxRates={fxRates}
+                  showARS={showARS}
+                  prevMonthLabel={prevMonthLabel}
+                />
+              )}
             </div>
           ))}
 
           {/* Footer */}
           <div style={{borderTop:`1px solid ${C.border}`,paddingTop:18,marginTop:4,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <span style={{fontSize:11,color:C.textMuted}}>Portfolio Tracker v2 · {MONTHS[month]} {year}</span>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <span style={{
+                background:`${C.accent}18`,color:C.accent,
+                fontFamily:"'DM Mono',monospace",fontSize:10,fontWeight:600,
+                padding:"2px 8px",borderRadius:99,letterSpacing:"0.06em",
+              }}>v{APP_VERSION}</span>
+              <span style={{fontSize:11,color:C.textMuted}}>Portfolio Tracker · {MONTHS[month]} {year}</span>
+            </div>
             <span style={{fontSize:11,color:C.textMuted}}>CEDEARs, Merval y Crypto: lookup local · Datos guardados en localStorage</span>
           </div>
         </main>
