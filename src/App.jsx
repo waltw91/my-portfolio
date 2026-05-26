@@ -10,8 +10,9 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 //       Export/Import JSON, fixed row.reduce bug, fixed cash input focus bug
 // v2.0  Full UI refresh: Nunito font, improved cards, collapsible compare panels
 //       with NUEVO/SALIÓ badges, visual delta bars, section total deltas
+// v2.1  Comment bubble on CEDEARs/Merval/Crypto headers — New, Edit, Delete
 // ─────────────────────────────────────────────────────────────────────────────
-const APP_VERSION = "2.0";
+const APP_VERSION = "2.1";
 const APP_BUILD   = new Date("2026-05-23").toISOString().slice(0,10);
 
 
@@ -158,6 +159,7 @@ function fxKey(y,m){ return `portfolio:fx:${y}-${String(m).padStart(2,"0")}`; }
 const EMPTY_FX = { mep:"", ccl:"", crypto:"" };
 function cashKey(y,m){ return `portfolio:cash:${y}-${String(m).padStart(2,"0")}`; }
 const EMPTY_CASH = { uala:"", mp:"", fisicos:"", online_banco:"", online_iol:"" };
+function commentKey(section){ return `portfolio:comment:${section}`; }
 function emptyRow(){ return {id:Date.now()+Math.random(),ticker:"",name:"",shares:"",buyPrice:"",currentPrice:""}; }
 
 function calcPnL(row){
@@ -186,6 +188,212 @@ function PnLCell({val,pct,currency}){
     <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:3}}>
       <span style={{color:col,fontWeight:600,fontSize:12,fontFamily:"'DM Mono',monospace",background:bg,padding:"2px 8px",borderRadius:6}}>{fmtPct(pct)}</span>
       <span style={{color:col,fontSize:11,opacity:0.75,fontFamily:"'DM Mono',monospace"}}>{pos?"+":""}{fmt(val)} {currency}</span>
+    </div>
+  );
+}
+
+// ── Comment bubble ───────────────────────────────────────────────────────────
+function CommentBubble({ sectionKey, color }) {
+  const storageKey = commentKey(sectionKey);
+  const [open, setOpen]       = React.useState(false);
+  const [comment, setComment] = React.useState(() => {
+    try { return localStorage.getItem(storageKey) || ""; } catch { return ""; }
+  });
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft]     = React.useState("");
+  const bubbleRef             = React.useRef(null);
+
+  // Close on outside click
+  React.useEffect(() => {
+    if (!open) return;
+    function handle(e) {
+      if (bubbleRef.current && !bubbleRef.current.contains(e.target)) {
+        setOpen(false);
+        setEditing(false);
+      }
+    }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [open]);
+
+  function handleNew() {
+    setDraft("");
+    setEditing(true);
+  }
+  function handleEdit() {
+    setDraft(comment);
+    setEditing(true);
+  }
+  function handleSave() {
+    const trimmed = draft.trim();
+    setComment(trimmed);
+    try { localStorage.setItem(storageKey, trimmed); } catch {}
+    setEditing(false);
+  }
+  function handleDelete() {
+    setComment("");
+    try { localStorage.removeItem(storageKey); } catch {}
+    setEditing(false);
+    setOpen(false);
+  }
+  function handleCancel() {
+    setEditing(false);
+    setDraft("");
+  }
+
+  const hasComment = comment.length > 0;
+
+  return (
+    <div style={{position:"relative",display:"inline-flex"}} ref={bubbleRef}>
+      {/* Trigger button */}
+      <button
+        onClick={()=>{ setOpen(o=>!o); setEditing(false); }}
+        title={hasComment ? "Ver comentario" : "Agregar comentario"}
+        style={{
+          background: hasComment ? `${color}18` : "transparent",
+          border: `1px solid ${hasComment ? color+"60" : C.border}`,
+          color: hasComment ? color : C.textMuted,
+          borderRadius: 8, padding:"6px 9px", cursor:"pointer",
+          fontSize:14, lineHeight:1, transition:"all 0.2s",
+          display:"flex", alignItems:"center", gap:5,
+        }}
+        onMouseEnter={e=>{e.currentTarget.style.borderColor=color;e.currentTarget.style.color=color;e.currentTarget.style.background=`${color}18`;}}
+        onMouseLeave={e=>{
+          e.currentTarget.style.borderColor=hasComment?color+"60":C.border;
+          e.currentTarget.style.color=hasComment?color:C.textMuted;
+          e.currentTarget.style.background=hasComment?`${color}18`:"transparent";
+        }}
+      >
+        💬
+        {hasComment && (
+          <span style={{
+            width:6, height:6, borderRadius:"50%",
+            background:color, flexShrink:0,
+          }}/>
+        )}
+      </button>
+
+      {/* Popover */}
+      {open && (
+        <div style={{
+          position:"absolute", top:"calc(100% + 8px)", right:0,
+          width:280, background:C.card,
+          border:`1px solid ${color}40`,
+          borderRadius:12, boxShadow:"0 8px 32px #00000070",
+          zIndex:500, overflow:"hidden",
+          animation:"fadeUp 0.18s ease forwards",
+        }}>
+          {/* Popover header */}
+          <div style={{
+            padding:"10px 14px",
+            background:`linear-gradient(90deg,${color}14,transparent)`,
+            borderBottom:`1px solid ${color}20`,
+            display:"flex", alignItems:"center", justifyContent:"space-between",
+          }}>
+            <span style={{fontSize:11,fontWeight:600,color,letterSpacing:"0.07em",textTransform:"uppercase"}}>
+              Nota
+            </span>
+            <button onClick={()=>{setOpen(false);setEditing(false);}} style={{
+              background:"transparent",border:"none",color:C.textMuted,
+              cursor:"pointer",fontSize:14,lineHeight:1,padding:"0 2px",
+            }}>×</button>
+          </div>
+
+          {/* Content */}
+          <div style={{padding:"12px 14px"}}>
+            {editing ? (
+              <textarea
+                autoFocus
+                value={draft}
+                onChange={e=>setDraft(e.target.value)}
+                placeholder="Escribí tu comentario..."
+                style={{
+                  width:"100%", minHeight:80, background:C.surface,
+                  border:`1px solid ${color}40`, borderRadius:8,
+                  color:C.text, fontFamily:"'DM Sans',sans-serif",
+                  fontSize:13, padding:"8px 10px", outline:"none",
+                  resize:"vertical", boxSizing:"border-box",
+                  transition:"border-color 0.2s",
+                }}
+                onFocus={e=>e.target.style.borderColor=color}
+                onBlur={e=>e.target.style.borderColor=`${color}40`}
+              />
+            ) : (
+              <div style={{
+                fontSize:13, color: hasComment ? C.text : C.textMuted,
+                lineHeight:1.6, fontStyle: hasComment ? "normal" : "italic",
+                minHeight:36,
+              }}>
+                {hasComment ? comment : "Sin comentarios. Hacé clic en "Nueva" para agregar."}
+              </div>
+            )}
+          </div>
+
+          {/* Action buttons */}
+          <div style={{
+            padding:"10px 14px",
+            borderTop:`1px solid ${C.border}`,
+            display:"flex", gap:6,
+          }}>
+            {editing ? (
+              <>
+                <button onClick={handleSave} style={{
+                  flex:1, background:`${color}20`, border:`1px solid ${color}60`,
+                  color, borderRadius:7, padding:"6px 0",
+                  cursor:"pointer", fontSize:12, fontWeight:600,
+                  fontFamily:"'DM Sans',sans-serif", transition:"all 0.15s",
+                }}
+                  onMouseEnter={e=>e.currentTarget.style.background=`${color}35`}
+                  onMouseLeave={e=>e.currentTarget.style.background=`${color}20`}
+                >✓ Guardar</button>
+                <button onClick={handleCancel} style={{
+                  flex:1, background:"transparent", border:`1px solid ${C.border}`,
+                  color:C.textMuted, borderRadius:7, padding:"6px 0",
+                  cursor:"pointer", fontSize:12,
+                  fontFamily:"'DM Sans',sans-serif", transition:"all 0.15s",
+                }}
+                  onMouseEnter={e=>{e.currentTarget.style.borderColor=C.textMuted;e.currentTarget.style.color=C.text;}}
+                  onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textMuted;}}
+                >Cancelar</button>
+              </>
+            ) : (
+              <>
+                <button onClick={handleNew} style={{
+                  flex:1, background:`${color}14`, border:`1px solid ${color}40`,
+                  color, borderRadius:7, padding:"6px 0",
+                  cursor:"pointer", fontSize:12, fontWeight:600,
+                  fontFamily:"'DM Sans',sans-serif", transition:"all 0.15s",
+                }}
+                  onMouseEnter={e=>e.currentTarget.style.background=`${color}28`}
+                  onMouseLeave={e=>e.currentTarget.style.background=`${color}14`}
+                >+ Nueva</button>
+                <button onClick={handleEdit} disabled={!hasComment} style={{
+                  flex:1, background:"transparent", border:`1px solid ${C.border}`,
+                  color: hasComment ? C.textSub : C.textMuted,
+                  borderRadius:7, padding:"6px 0",
+                  cursor: hasComment ? "pointer" : "default",
+                  fontSize:12, fontFamily:"'DM Sans',sans-serif",
+                  opacity: hasComment ? 1 : 0.4, transition:"all 0.15s",
+                }}
+                  onMouseEnter={e=>{if(hasComment){e.currentTarget.style.borderColor=C.accent;e.currentTarget.style.color=C.accent;}}}
+                  onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=hasComment?C.textSub:C.textMuted;}}
+                >✎ Editar</button>
+                <button onClick={handleDelete} disabled={!hasComment} style={{
+                  flex:1, background:"transparent", border:`1px solid ${C.border}`,
+                  color: hasComment ? C.textMuted : C.textMuted,
+                  borderRadius:7, padding:"6px 0",
+                  cursor: hasComment ? "pointer" : "default",
+                  fontSize:12, fontFamily:"'DM Sans',sans-serif",
+                  opacity: hasComment ? 1 : 0.4, transition:"all 0.15s",
+                }}
+                  onMouseEnter={e=>{if(hasComment){e.currentTarget.style.borderColor=C.red;e.currentTarget.style.color=C.red;e.currentTarget.style.background=C.redBg;}}}
+                  onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textMuted;e.currentTarget.style.background="transparent";}}
+                >🗑 Borrar</button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -665,6 +873,7 @@ function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCo
             </div>
           )}
           <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <CommentBubble sectionKey={sectionKey} color={meta.color}/>
             <button onClick={()=>{
               if(window.confirm(`¿Borrar todos los datos de ${meta.label} en este mes?`))
                 onChange(_prev => [emptyRow()]);
