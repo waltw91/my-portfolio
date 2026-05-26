@@ -324,7 +324,7 @@ function CommentBubble({ sectionKey, color }) {
                 lineHeight:1.6, fontStyle: hasComment ? "normal" : "italic",
                 minHeight:36,
               }}>
-                {hasComment ? comment : "Sin comentarios. Hacé clic en "Nueva" para agregar."}
+                {hasComment ? comment : "Sin comentarios. Hacé clic en \"Nueva\" para agregar."}
               </div>
             )}
           </div>
