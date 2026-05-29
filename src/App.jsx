@@ -11,8 +11,10 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 // v2.0  Full UI refresh: Nunito font, improved cards, collapsible compare panels
 //       with NUEVO/SALIÓ badges, visual delta bars, section total deltas
 // v2.1  Comment bubble on CEDEARs/Merval/Crypto headers — New, Edit, Delete
+// v2.2  Zero P&L shown in amber, positive green, negative red throughout
+// v2.3  Copiar button — copies tickers, names and buy prices to next month
 // ─────────────────────────────────────────────────────────────────────────────
-const APP_VERSION = "2.1";
+const APP_VERSION = "2.3";
 const APP_BUILD   = new Date("2026-05-23").toISOString().slice(0,10);
 
 
@@ -32,6 +34,8 @@ const C = {
   greenBg: "rgba(52,211,153,0.08)",
   red: "#f87171",
   redBg: "rgba(248,113,113,0.08)",
+  amber: "#f59e0b",
+  amberBg: "rgba(245,158,11,0.08)",
   text: "#f0f0f5",
   textSub: "#a0a0b8",
   textMuted: "#5a5a72",
@@ -177,17 +181,29 @@ function fmtPct(n){
   return (n>=0?"+":"")+fmt(n)+"%";
 }
 
+// Returns green/amber/red based on value — zero gets amber
+function pnlColor(val) {
+  if (val === null || val === undefined || isNaN(val)) return C.textMuted;
+  if (val === 0 || Object.is(val, 0)) return C.amber;
+  return val > 0 ? C.green : C.red;
+}
+function pnlBg(val) {
+  if (val === null || val === undefined || isNaN(val)) return "transparent";
+  if (val === 0 || Object.is(val, 0)) return C.amberBg;
+  return val > 0 ? C.greenBg : C.redBg;
+}
+
 function Badge({children,color}){
   return <span style={{display:"inline-block",padding:"2px 9px",borderRadius:99,background:`${color}18`,color,fontSize:11,fontWeight:600,letterSpacing:"0.04em",fontFamily:"'DM Mono',monospace"}}>{children}</span>;
 }
 
 function PnLCell({val,pct,currency}){
   if(val===null) return <span style={{color:C.textMuted,fontSize:12}}>—</span>;
-  const pos=val>=0, col=pos?C.green:C.red, bg=pos?C.greenBg:C.redBg;
+  const col=pnlColor(val), bg=pnlBg(val);
   return (
     <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:3}}>
       <span style={{color:col,fontWeight:600,fontSize:12,fontFamily:"'DM Mono',monospace",background:bg,padding:"2px 8px",borderRadius:6}}>{fmtPct(pct)}</span>
-      <span style={{color:col,fontSize:11,opacity:0.75,fontFamily:"'DM Mono',monospace"}}>{pos?"+":""}{fmt(val)} {currency}</span>
+      <span style={{color:col,fontSize:11,opacity:0.75,fontFamily:"'DM Mono',monospace"}}>{val>0?"+":""}{fmt(val)} {currency}</span>
     </div>
   );
 }
@@ -633,14 +649,14 @@ function ComparePanel({ sectionKey, currentData, prevData, fxRates, showARS, pre
             </div>
             {totalDeltaPct!==null&&!noFx&&(
               <div style={{
-                background:totalDelta>=0?C.greenBg:C.redBg,
-                border:`1px solid ${totalDelta>=0?C.green:C.red}40`,
+                background:pnlBg(totalDelta),
+                border:`1px solid ${pnlColor(totalDelta)}40`,
                 borderRadius:8,padding:"6px 12px",textAlign:"center",minWidth:90,
               }}>
-                <div style={{fontFamily:"'DM Mono',monospace",fontSize:13,fontWeight:700,color:totalDelta>=0?C.green:C.red}}>
+                <div style={{fontFamily:"'DM Mono',monospace",fontSize:13,fontWeight:700,color:pnlColor(totalDelta)}}>
                   {totalDelta>=0?"+":""}{fmtPct(totalDeltaPct)}
                 </div>
-                <div style={{fontFamily:"'DM Mono',monospace",fontSize:10,color:totalDelta>=0?C.green:C.red,marginTop:1}}>
+                <div style={{fontFamily:"'DM Mono',monospace",fontSize:10,color:pnlColor(totalDelta),marginTop:1}}>
                   {totalDelta>=0?"+":""}{fmt(totalDelta)} {dispCurrency}
                 </div>
               </div>
@@ -653,7 +669,7 @@ function ComparePanel({ sectionKey, currentData, prevData, fxRates, showARS, pre
       <div style={{display:"flex",flexDirection:"column",gap:8}}>
         {rows.map(r => {
           const pos = r.deltaVal!==null && r.deltaVal >= 0;
-          const col = r.deltaVal!==null ? (pos ? C.green : C.red) : C.textMuted;
+          const col = r.deltaVal!==null ? pnlColor(r.deltaVal) : C.textMuted;
           return (
             <div key={r.ticker} style={{
               display:"flex",alignItems:"center",gap:12,
@@ -724,7 +740,7 @@ function ComparePanel({ sectionKey, currentData, prevData, fxRates, showARS, pre
 }
 
 // ── Section table ────────────────────────────────────────────────────────────
-function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCompare, fxRates, showARS}){
+function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCompare, fxRates, showARS, year, month}){
   const data = Array.isArray(dataProp) ? dataProp : [];
   const meta = SECTION_META[sectionKey];
   const timers = useRef({});
@@ -782,6 +798,34 @@ function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCo
 
   function addRow(){ onChange(prev=>{ const arr=Array.isArray(prev)?prev:[]; return [...arr,emptyRow()]; }); }
   function removeRow(id){ onChange(prev=>{ const arr=Array.isArray(prev)?prev:[]; return arr.filter(r=>r.id!==id); }); }
+
+  function handleCopy() {
+    // Compute next month/year
+    const nextMonth = month === 12 ? 1 : month + 1;
+    const nextYear  = month === 12 ? year + 1 : year;
+    const key = makeKey(sectionKey, nextYear, nextMonth);
+    // Copy tickers, names and buy prices — clear shares and currentPrice
+    const copied = data
+      .filter(r => r.ticker)
+      .map(r => ({ ...emptyRow(), ticker: r.ticker, name: r.name, buyPrice: r.buyPrice }));
+    if (copied.length === 0) return;
+    // Warn if next month already has data
+    try {
+      const existing = localStorage.getItem(key);
+      if (existing) {
+        const parsed = JSON.parse(existing);
+        if (Array.isArray(parsed) && parsed.some(r => r.ticker)) {
+          if (!window.confirm(`El mes siguiente ya tiene datos en ${meta.label}. ¿Sobreescribir?`)) return;
+        }
+      }
+      localStorage.setItem(key, JSON.stringify(copied));
+      // Toast-style alert
+      alert(`✓ ${copied.length} activos copiados a ${MONTHS[nextMonth-1]} ${nextYear}`);
+    } catch(e) {
+      console.error(e);
+      alert("Error al copiar datos.");
+    }
+  }
 
   function getPrevRow(ticker){
     if(!compareData||!ticker) return null;
@@ -866,8 +910,8 @@ function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCo
                 <div style={{fontFamily:"'DM Mono',monospace",fontSize:15,fontWeight:500,color:C.text}}>
                   {(!noFx&&totVal!==null)?fmt(totVal):"—"} <span style={{fontSize:10,color:C.textMuted}}>{dispCurrency}</span>
                 </div>
-                <div style={{fontSize:11,fontFamily:"'DM Mono',monospace",color:totPnL>=0?C.green:C.red,marginTop:2}}>
-                  {totPnL>=0?"▲":"▼"} {fmtPct(totPct)} &nbsp;({totPnL>=0?"+":""}{fmt(totPnL)})
+                <div style={{fontSize:11,fontFamily:"'DM Mono',monospace",color:pnlColor(totPnL),marginTop:2}}>
+                  {totPnL>0?"▲":totPnL<0?"▼":"●"} {fmtPct(totPct)} &nbsp;({totPnL>0?"+":""}{fmt(totPnL)})
                 </div>
               </div>
             </div>
@@ -886,6 +930,16 @@ function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCo
               onMouseEnter={e=>{e.currentTarget.style.borderColor=C.red;e.currentTarget.style.color=C.red;e.currentTarget.style.background=C.redBg;}}
               onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textMuted;e.currentTarget.style.background="transparent";}}
             ><span style={{fontSize:13}}>🗑</span> Limpiar</button>
+            <button onClick={handleCopy} style={{
+              background:"transparent",border:`1px solid ${C.border}`,
+              color:C.textMuted,fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:500,
+              padding:"8px 14px",cursor:"pointer",borderRadius:9,transition:"all 0.2s",
+              display:"flex",alignItems:"center",gap:5,
+            }}
+              title={`Copiar tickers al mes siguiente`}
+              onMouseEnter={e=>{e.currentTarget.style.borderColor=C.accent;e.currentTarget.style.color=C.accent;e.currentTarget.style.background=`${C.accent}12`;}}
+              onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textMuted;e.currentTarget.style.background="transparent";}}
+            ><span style={{fontSize:13}}>📋</span> Copiar</button>
             <button onClick={addRow} style={{
               background:`${meta.color}14`,border:`1px solid ${meta.color}44`,
               color:meta.color,fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:600,
@@ -990,7 +1044,7 @@ function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCo
                   {showCompare&&(
                     <td style={{...tdSt,textAlign:"right",fontFamily:"'DM Mono',monospace",fontSize:12}}>
                       {delta!==null&&!noFx
-                        ?<span style={{color:delta>=0?C.green:C.red,fontWeight:600}}>{delta>=0?"+":""}{fmt(toDisplay(delta))} {dispCurrency}</span>
+                        ?<span style={{color:pnlColor(delta),fontWeight:600}}>{delta>0?"+":""}{fmt(toDisplay(delta))} {dispCurrency}</span>
                         :<span style={{color:C.textMuted}}>{delta!==null&&noFx?"Sin TC":"—"}</span>}
                     </td>
                   )}
@@ -1649,7 +1703,7 @@ export default function PortfolioTracker(){
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
                   {investedPnLDisp!==null&&(
-                    <Badge color={investedPnLDisp>=0?C.green:C.red}>{fmtPct(investedPnLPct)}</Badge>
+                    <Badge color={pnlColor(investedPnLDisp)}>{fmtPct(investedPnLPct)}</Badge>
                   )}
                   <span style={{fontSize:10,color:C.textMuted,fontFamily:"'DM Mono',monospace"}}>{showARS?"ARS":"USD"} · CEDEARs + Merval + Crypto</span>
                 </div>
@@ -1678,7 +1732,7 @@ export default function PortfolioTracker(){
                   <div style={{fontFamily:"'DM Mono',monospace",fontSize:20,fontWeight:500,color:C.text,marginBottom:8}}>
                     {s.val>0?fmt(s.val):"—"} <span style={{fontSize:11,color:C.textMuted}}>{showARS?"ARS":"USD"}</span>
                   </div>
-                  <Badge color={s.pnl>=0?C.green:C.red}>{s.val>0?fmtPct(s.pct):"—"}</Badge>
+                  <Badge color={pnlColor(s.pnl)}>{s.val>0?fmtPct(s.pct):"—"}</Badge>
                 </div>
               );
             })}
@@ -1827,6 +1881,8 @@ export default function PortfolioTracker(){
                 showCompare={showCompare}
                 fxRates={fxRates}
                 showARS={showARS}
+                year={year}
+                month={month+1}
               />
               {showCompare&&(
                 <ComparePanel
