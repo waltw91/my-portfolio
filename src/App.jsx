@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid } from "recharts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // VERSION HISTORY
@@ -13,8 +13,10 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 // v2.1  Comment bubble on CEDEARs/Merval/Crypto headers — New, Edit, Delete
 // v2.2  Zero P&L shown in amber, positive green, negative red throughout
 // v2.3  Copiar button — copies tickers, names and buy prices to next month
+// v2.4  CEDEARs prices now in ARS, converted to USD via MEP (not CCL)
+// v2.5  EOT tab: line chart + summary cards + monthly breakdown table
 // ─────────────────────────────────────────────────────────────────────────────
-const APP_VERSION = "2.3";
+const APP_VERSION = "2.5";
 const APP_BUILD   = new Date("2026-05-23").toISOString().slice(0,10);
 
 
@@ -45,7 +47,7 @@ const C = {
 };
 
 const SECTION_META = {
-  cedears: { label: "CEDEARs", sub: "Mercado argentino · USD", currency: "USD", color: C.cedear, emoji: "🏦" },
+  cedears: { label: "CEDEARs", sub: "Mercado argentino · ARS", currency: "ARS", color: C.cedear, emoji: "🏦" },
   pesos:   { label: "Merval", sub: "Renta local · ARS", currency: "ARS", color: C.pesos,  emoji: "📈" },
   crypto:  { label: "Crypto",        sub: "Activos digitales · USD", currency: "USD", color: C.crypto, emoji: "⬡" },
 };
@@ -572,7 +574,7 @@ function ComparePanel({ sectionKey, currentData, prevData, fxRates, showARS, pre
   const curr = Array.isArray(currentData) ? currentData : [];
 
   // FX helpers — same logic as SectionTable
-  const FX_KEY_MAP = { cedears:"ccl", pesos:"mep", crypto:"crypto" };
+  const FX_KEY_MAP = { cedears:"mep", pesos:"mep", crypto:"crypto" };
   const nativeIsARS = meta.currency === "ARS";
   const dispCurrency = showARS ? "ARS" : "USD";
   const fxRate = parseFloat(fxRates?.[FX_KEY_MAP[sectionKey]]) || null;
@@ -749,7 +751,7 @@ function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCo
   // CEDEARs: native USD → ARS = ×CCL  |  USD = no change
   // Pesos:   native ARS → USD = ÷MEP  |  ARS = no change
   // Crypto:  native USD → ARS = ×Crypto | USD = no change
-  const FX_KEY_MAP = { cedears:"ccl", pesos:"mep", crypto:"crypto" };
+  const FX_KEY_MAP = { cedears:"mep", pesos:"mep", crypto:"crypto" };
   const nativeIsARS = meta.currency === "ARS";
   const dispCurrency = showARS ? "ARS" : "USD";
   const fxRate = parseFloat(fxRates?.[FX_KEY_MAP[sectionKey]]) || null;
@@ -1239,6 +1241,346 @@ function CashPanel({ cash, setCash, showARS, fxRates }) {
   );
 }
 
+
+// ── EOT: Evolution Over Time ──────────────────────────────────────────────────
+const EOT_SERIES = [
+  { key:"cedears",   label:"CEDEARs",       color:"#f59e0b" },
+  { key:"pesos",     label:"Merval",         color:"#38bdf8" },
+  { key:"crypto",    label:"Crypto",         color:"#a78bfa" },
+  { key:"dolares",   label:"Dólares",        color:"#22c55e" },
+  { key:"grandTotal",label:"Grand Total",    color:"#6c63ff" },
+  { key:"invested",  label:"Total Invested", color:"#f87171" },
+];
+
+const RANGE_OPTIONS = [
+  { label:"3M",  months:3  },
+  { label:"6M",  months:6  },
+  { label:"12M", months:12 },
+  { label:"Todo",months:99 },
+];
+
+function EOTView({ showARS }) {
+  const [range, setRange]   = React.useState(6);
+  const [hidden, setHidden] = React.useState(new Set());
+
+  // ── Load all available monthly data from localStorage ──────────────────────
+  const allData = React.useMemo(() => {
+    const keys = Object.keys(localStorage).filter(k => k.startsWith("portfolio:cedears:"));
+    // Extract unique year-month combos
+    const months = keys.map(k => {
+      const m = k.match(/(\d{4})-(\d{2})$/);
+      return m ? { year: parseInt(m[1]), month: parseInt(m[2]) } : null;
+    }).filter(Boolean);
+    // Sort ascending
+    months.sort((a,b) => a.year!==b.year ? a.year-b.year : a.month-b.month);
+
+    return months.map(({ year, month }) => {
+      // Load each section
+      const sections = {};
+      for (const s of ["cedears","pesos","crypto"]) {
+        try {
+          const r = localStorage.getItem(makeKey(s, year, month));
+          sections[s] = r ? JSON.parse(r) : [];
+        } catch { sections[s] = []; }
+      }
+      // Load FX
+      let fx = { mep:"", ccl:"", crypto:"" };
+      try { const f = localStorage.getItem(fxKey(year, month)); if(f) fx = JSON.parse(f); } catch {}
+      // Load cash
+      let cash = { uala:"", mp:"", fisicos:"", online_banco:"", online_iol:"" };
+      try { const c = localStorage.getItem(cashKey(year, month)); if(c) cash = JSON.parse(c); } catch {}
+
+      const mepRate   = parseFloat(fx.mep)    || null;
+      const cclRate   = parseFloat(fx.ccl)    || null;
+      const cryptoRate= parseFloat(fx.crypto) || null;
+
+      // Compute native totals per section
+      function sectionNativeTotal(s) {
+        return (Array.isArray(sections[s])?sections[s]:[])
+          .reduce((a,r) => a + (calcPnL(r).value || 0), 0);
+      }
+      function sectionNativeCost(s) {
+        return (Array.isArray(sections[s])?sections[s]:[])
+          .reduce((a,r) => a + (parseFloat(r.shares)||0)*(parseFloat(r.buyPrice)||0), 0);
+      }
+
+      const cedearARS  = sectionNativeTotal("cedears"); // native ARS ÷ MEP
+      const mervalARS  = sectionNativeTotal("pesos");   // native ARS
+      const cryptoUSD  = sectionNativeTotal("crypto");  // native USD
+      const pesosARS   = (parseFloat(cash.uala)||0) + (parseFloat(cash.mp)||0);
+      const dolaresUSD = (parseFloat(cash.fisicos)||0) + (parseFloat(cash.online_banco)||0) + (parseFloat(cash.online_iol)||0);
+
+      // Convert everything to display currency
+      function toDisp(nativeVal, isARS, rate) {
+        if (nativeVal === 0) return 0;
+        if (showARS) {
+          if (isARS) return nativeVal;
+          return rate ? nativeVal * rate : null;
+        } else {
+          if (!isARS) return nativeVal;
+          return rate ? nativeVal / rate : null;
+        }
+      }
+
+      const cedearDisp  = toDisp(cedearARS,  true,  mepRate);
+      const mervalDisp  = toDisp(mervalARS,  true,  mepRate);
+      const cryptoDisp  = toDisp(cryptoUSD,  false, cryptoRate);
+      const pesosDisp   = toDisp(pesosARS,   true,  mepRate);
+      const dolaresDisp = toDisp(dolaresUSD, false, cclRate);
+
+      const allDisp = [cedearDisp, mervalDisp, cryptoDisp, pesosDisp, dolaresDisp];
+      const grandTotal = allDisp.every(v=>v!==null) ? allDisp.reduce((a,v)=>a+v,0) : null;
+
+      // Invested = cost basis of CEDEARs + Merval + Crypto
+      const cedearCostARS  = sectionNativeCost("cedears");
+      const mervalCostARS  = sectionNativeCost("pesos");
+      const cryptoCostUSD  = sectionNativeCost("crypto");
+      const investedCedear = showARS ? cedearCostARS  : (mepRate   ? cedearCostARS/mepRate   : null);
+      const investedMerval = showARS ? mervalCostARS  : (mepRate   ? mervalCostARS/mepRate   : null);
+      const investedCrypto = showARS ? (cryptoRate?cryptoCostUSD*cryptoRate:null) : cryptoCostUSD;
+      const invested = (investedCedear!==null&&investedMerval!==null&&investedCrypto!==null)
+        ? investedCedear+investedMerval+investedCrypto : null;
+
+      return {
+        label: `${MONTHS[month-1].slice(0,3)} ${year}`,
+        year, month,
+        cedears:   cedearDisp,
+        pesos:     mervalDisp,
+        crypto:    cryptoDisp,
+        dolares:   dolaresDisp,
+        grandTotal,
+        invested,
+      };
+    });
+  }, [showARS]);
+
+  // Apply range filter
+  const filtered = range >= 99 ? allData : allData.slice(-range);
+
+  // Toggle series visibility
+  function toggleSeries(key) {
+    setHidden(h => {
+      const n = new Set(h);
+      n.has(key) ? n.delete(key) : n.add(key);
+      return n;
+    });
+  }
+
+  const dispCurrency = showARS ? "ARS" : "USD";
+  const visibleSeries = EOT_SERIES.filter(s => !hidden.has(s.key));
+
+  // Find max value for Y-axis scaling
+  const allValues = filtered.flatMap(d => visibleSeries.map(s => d[s.key] || 0)).filter(v=>v>0);
+  const maxVal = allValues.length ? Math.max(...allValues) : 1;
+
+  if (allData.length === 0) return (
+    <div style={{
+      display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+      minHeight:400,gap:16,color:C.textMuted,
+    }}>
+      <div style={{fontSize:48}}>📈</div>
+      <div style={{fontFamily:"'Nunito',sans-serif",fontSize:20,fontWeight:700,color:C.text}}>Sin datos aún</div>
+      <div style={{fontSize:13,textAlign:"center",maxWidth:340,lineHeight:1.6}}>
+        Guardá datos en la pestaña Portfolio para que aparezcan aquí.
+      </div>
+    </div>
+  );
+
+  // ── Mini sparkline values for summary cards ───────────────────────────────
+  function lastTwo(key) {
+    const vals = filtered.map(d=>d[key]).filter(v=>v!==null&&v>0);
+    if (vals.length < 2) return null;
+    return { prev: vals[vals.length-2], curr: vals[vals.length-1] };
+  }
+
+  return (
+    <div style={{padding:"28px 28px 52px",maxWidth:1380,margin:"0 auto"}}>
+
+      {/* Header row */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:24,flexWrap:"wrap",gap:12}}>
+        <div>
+          <h2 style={{fontFamily:"'Nunito',sans-serif",fontSize:22,fontWeight:800,color:C.text,margin:0,lineHeight:1}}>
+            Evolución del Portafolio
+          </h2>
+          <p style={{fontSize:12,color:C.textMuted,margin:"4px 0 0",fontFamily:"'DM Mono',monospace"}}>
+            {filtered.length} meses · valores en {dispCurrency}
+          </p>
+        </div>
+        {/* Range selector */}
+        <div style={{display:"flex",alignItems:"center",gap:4,background:C.card,border:`1px solid ${C.border}`,borderRadius:9,padding:3}}>
+          {RANGE_OPTIONS.map(o=>{
+            const active = range===o.months;
+            return (
+              <button key={o.label} onClick={()=>setRange(o.months)} style={{
+                background:active?C.accent:"transparent",
+                border:"none",
+                color:active?"#fff":C.textMuted,
+                fontFamily:"'DM Mono',monospace",fontSize:12,fontWeight:600,
+                padding:"5px 14px",cursor:"pointer",borderRadius:7,
+                transition:"all 0.2s",letterSpacing:"0.04em",
+              }}>{o.label}</button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Series toggle pills */}
+      <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:20}}>
+        {EOT_SERIES.map(s=>{
+          const on = !hidden.has(s.key);
+          return (
+            <button key={s.key} onClick={()=>toggleSeries(s.key)} style={{
+              background: on ? `${s.color}20` : "transparent",
+              border:`1px solid ${on ? s.color+"60" : C.border}`,
+              color: on ? s.color : C.textMuted,
+              fontFamily:"'DM Mono',monospace",fontSize:11,fontWeight:600,
+              padding:"5px 12px",cursor:"pointer",borderRadius:99,
+              transition:"all 0.2s",display:"flex",alignItems:"center",gap:6,
+              letterSpacing:"0.04em",
+            }}>
+              <div style={{width:8,height:8,borderRadius:"50%",background:on?s.color:C.textMuted,flexShrink:0}}/>
+              {s.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── Main line chart ── */}
+      <div style={{
+        background:C.card,border:`1px solid ${C.border}`,borderRadius:16,
+        padding:"20px 16px 12px",marginBottom:24,overflow:"hidden",
+      }}>
+        {filtered.length < 2 ? (
+          <div style={{textAlign:"center",padding:"40px 0",color:C.textMuted,fontSize:13}}>
+            Se necesitan al menos 2 meses de datos para mostrar el gráfico.
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height={320}>
+            <LineChart data={filtered} margin={{top:8,right:16,bottom:0,left:16}}>
+              <defs>
+                {visibleSeries.map(s=>(
+                  <linearGradient key={s.key} id={`eot-grad-${s.key}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor={s.color} stopOpacity={0.15}/>
+                    <stop offset="95%" stopColor={s.color} stopOpacity={0}/>
+                  </linearGradient>
+                ))}
+              </defs>
+              <CartesianGrid stroke={C.border} strokeDasharray="3 3" vertical={false}/>
+              <XAxis dataKey="label" tick={{fill:C.textMuted,fontSize:11,fontFamily:"'DM Mono',monospace"}} axisLine={false} tickLine={false}/>
+              <YAxis tick={{fill:C.textMuted,fontSize:10,fontFamily:"'DM Mono',monospace"}} axisLine={false} tickLine={false}
+                tickFormatter={v=>v>=1000000?`${(v/1000000).toFixed(1)}M`:v>=1000?`${(v/1000).toFixed(0)}K`:`${v}`}
+              />
+              <Tooltip
+                contentStyle={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,fontFamily:"'DM Mono',monospace",fontSize:11,boxShadow:"0 8px 32px #00000080"}}
+                formatter={(v,n)=>[v!==null?`${fmt(v)} ${dispCurrency}`:"—",n]}
+                labelStyle={{color:C.text,fontWeight:600,marginBottom:6}}
+              />
+              {visibleSeries.map(s=>(
+                <Line key={s.key} type="monotone" dataKey={s.key} name={s.label}
+                  stroke={s.color} strokeWidth={2} dot={{r:3,fill:s.color,strokeWidth:0}}
+                  activeDot={{r:5,fill:s.color,stroke:C.bg,strokeWidth:2}}
+                  connectNulls={true}
+                />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+
+      {/* ── Summary cards with last delta ── */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:16,marginBottom:28}}>
+        {EOT_SERIES.map(s=>{
+          const pair = lastTwo(s.key);
+          const delta = pair ? pair.curr - pair.prev : null;
+          const deltaPct = (delta!==null&&pair.prev>0) ? (delta/pair.prev)*100 : null;
+          const lastVal = filtered.length ? filtered[filtered.length-1][s.key] : null;
+          return (
+            <div key={s.key} style={{
+              background:C.card,border:`1px solid ${C.border}`,borderRadius:14,
+              padding:"16px 18px",position:"relative",overflow:"hidden",
+            }}>
+              <div style={{position:"absolute",top:0,left:0,right:0,height:3,background:`linear-gradient(90deg,${s.color},${s.color}00)`,borderRadius:"14px 14px 0 0"}}/>
+              <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:10}}>
+                <div style={{width:8,height:8,borderRadius:"50%",background:s.color,flexShrink:0}}/>
+                <span style={{fontSize:11,fontWeight:600,color:C.textMuted,letterSpacing:"0.07em",textTransform:"uppercase"}}>{s.label}</span>
+              </div>
+              <div style={{fontFamily:"'DM Mono',monospace",fontSize:18,fontWeight:500,color:C.text,marginBottom:8}}>
+                {lastVal!==null&&lastVal>0 ? `${fmt(lastVal)} ${dispCurrency}` : "—"}
+              </div>
+              {deltaPct!==null&&(
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <span style={{
+                    background:pnlBg(delta),color:pnlColor(delta),
+                    fontFamily:"'DM Mono',monospace",fontSize:11,fontWeight:700,
+                    padding:"2px 8px",borderRadius:6,
+                  }}>{delta>0?"+":""}{fmtPct(deltaPct)}</span>
+                  <span style={{fontSize:10,color:C.textMuted,fontFamily:"'DM Mono',monospace"}}>
+                    vs mes anterior
+                  </span>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── Monthly breakdown table ── */}
+      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:16,overflow:"hidden"}}>
+        <div style={{
+          padding:"14px 20px",borderBottom:`1px solid ${C.border}`,
+          display:"flex",alignItems:"center",gap:10,
+        }}>
+          <span style={{fontFamily:"'Nunito',sans-serif",fontSize:15,fontWeight:700,color:C.text}}>Detalle mensual</span>
+          <span style={{fontSize:11,color:C.textMuted,fontFamily:"'DM Mono',monospace"}}>{dispCurrency}</span>
+        </div>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",minWidth:800}}>
+            <thead>
+              <tr style={{background:C.surface}}>
+                <th style={{padding:"10px 16px",textAlign:"left",fontSize:10,color:C.textMuted,fontWeight:500,letterSpacing:"0.1em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap",fontFamily:"'DM Mono',monospace"}}>Mes</th>
+                {EOT_SERIES.map(s=>(
+                  <th key={s.key} style={{padding:"10px 12px",textAlign:"right",fontSize:10,color:hidden.has(s.key)?C.textMuted:s.color,fontWeight:500,letterSpacing:"0.08em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap",fontFamily:"'DM Mono',monospace",opacity:hidden.has(s.key)?0.4:1}}>
+                    {s.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {[...filtered].reverse().map((d,i)=>{
+                const prev = filtered[filtered.length-1-i-1];
+                return (
+                  <tr key={d.label}
+                    style={{transition:"background 0.12s"}}
+                    onMouseEnter={e=>e.currentTarget.style.background=C.cardHover}
+                    onMouseLeave={e=>e.currentTarget.style.background="transparent"}
+                  >
+                    <td style={{padding:"10px 16px",fontSize:12,fontFamily:"'DM Mono',monospace",color:C.text,borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap",fontWeight:600}}>{d.label}</td>
+                    {EOT_SERIES.map(s=>{
+                      const v = d[s.key];
+                      const pv = prev?.[s.key];
+                      const delta = (v!==null&&pv!==null) ? v-pv : null;
+                      return (
+                        <td key={s.key} style={{padding:"10px 12px",textAlign:"right",borderBottom:`1px solid ${C.border}`,opacity:hidden.has(s.key)?0.3:1}}>
+                          <div style={{fontFamily:"'DM Mono',monospace",fontSize:12,color:C.text}}>{v!==null&&v>0?fmt(v):"—"}</div>
+                          {delta!==null&&v>0&&pv>0&&(
+                            <div style={{fontFamily:"'DM Mono',monospace",fontSize:10,color:pnlColor(delta),marginTop:1}}>
+                              {delta>0?"+":""}{fmt(delta)}
+                            </div>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── App ──────────────────────────────────────────────────────────────────────
 export default function PortfolioTracker(){
   const now=new Date();
@@ -1252,6 +1594,7 @@ export default function PortfolioTracker(){
   const [fxRates,setFxRates]=useState(EMPTY_FX);
   const [showARS,setShowARS]=useState(false);
   const [cash,setCash]=useState(EMPTY_CASH);
+  const [activeTab,setActiveTab]=useState("portfolio"); // "portfolio" | "eot"
 
   useEffect(()=>{
     const loaded={};
@@ -1313,7 +1656,7 @@ export default function PortfolioTracker(){
   }
 
   // FX helpers for summary cards — mirrors SectionTable logic exactly
-  const APP_FX_KEY = { cedears:"ccl", pesos:"mep", crypto:"crypto" };
+  const APP_FX_KEY = { cedears:"mep", pesos:"mep", crypto:"crypto" };
   function sectionFxRate(s){ return parseFloat(fxRates?.[APP_FX_KEY[s]])||null; }
   function sectionToDisplay(s, nativeVal){
     if(nativeVal===null||nativeVal===undefined) return null;
@@ -1378,20 +1721,27 @@ export default function PortfolioTracker(){
   const grandPesosARS   = totalPesosARS + mervalNativeARS;
 
   // 2. Dolarizado = Dólares (USD) + CEDEARs (USD) + Crypto (USD) — toggle-aware
-  const cedearNativeUSD  = nativeValOf("cedears");
+  const cedearNativeARS  = nativeValOf("cedears");
+  const cedearUSD        = (mepRate && cedearNativeARS) ? cedearNativeARS / mepRate : null;
   const cryptoNativeUSD  = nativeValOf("crypto");
-  const grandDolarizadoUSD = totalDolaresUSD + cedearNativeUSD + cryptoNativeUSD;
-  // Convert to ARS if toggle is ARS (use CCL for all USD components)
-  const grandDolarizadoDisp = showARS ? (cclRate ? grandDolarizadoUSD * cclRate : null) : grandDolarizadoUSD;
+  const grandDolarizadoUSD = (cedearUSD !== null)
+    ? totalDolaresUSD + cedearUSD + cryptoNativeUSD
+    : null;
+  // Convert to ARS if toggle is ARS (CEDEARs already native ARS, crypto/dólares × CCL)
+  const grandDolarizadoDisp = showARS
+    ? (cclRate
+        ? (cedearNativeARS + totalDolaresUSD * cclRate + cryptoNativeUSD * cclRate)
+        : null)
+    : grandDolarizadoUSD;
 
   // 3. Total Portfolio — already computed as totalVal (respects USD/ARS toggle)
 
   // 4. Total Invested = cost basis of CEDEARs + Merval + Crypto (in display currency)
-  const investedCedearUSD = nativeCostOf("cedears");
+  const investedCedearARS = nativeCostOf("cedears");  // now native ARS
   const investedMervalARS = nativeCostOf("pesos");
   const investedCryptoUSD = nativeCostOf("crypto");
   // Convert each to display currency then sum
-  const investedCedearDisp = showARS && cclRate ? investedCedearUSD*cclRate : !showARS ? investedCedearUSD : null;
+  const investedCedearDisp = showARS ? investedCedearARS : (mepRate ? investedCedearARS/mepRate : null);
   const investedMervalDisp = !showARS && mepRate ? investedMervalARS/mepRate : showARS ? investedMervalARS : null;
   const investedCryptoDisp = showARS && cclRate ? investedCryptoUSD*cclRate : !showARS ? investedCryptoUSD : null;
   const grandTotalInvestedDisp = (investedCedearDisp!==null && investedMervalDisp!==null && investedCryptoDisp!==null)
@@ -1510,8 +1860,29 @@ export default function PortfolioTracker(){
 
           <div style={{width:1,height:24,background:C.border}}/>
 
-          {/* Month selector */}
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
+          {/* Tab switcher */}
+          <div style={{display:"flex",alignItems:"center",gap:2,background:C.card,border:`1px solid ${C.border}`,borderRadius:9,padding:3}}>
+            {[{key:"portfolio",label:"Portfolio",icon:"📊"},{key:"eot",label:"EOT",icon:"📈"}].map(t=>{
+              const active=activeTab===t.key;
+              return (
+                <button key={t.key} onClick={()=>setActiveTab(t.key)} style={{
+                  background:active?C.accent:"transparent",
+                  border:"none",
+                  color:active?"#fff":C.textMuted,
+                  fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:600,
+                  padding:"5px 14px",cursor:"pointer",borderRadius:7,
+                  transition:"all 0.2s",display:"flex",alignItems:"center",gap:5,
+                }}>
+                  <span>{t.icon}</span>{t.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <div style={{width:1,height:24,background:C.border}}/>
+
+          {/* Month selector — hidden on EOT tab */}
+          <div style={{display:activeTab==="portfolio"?"flex":"none",alignItems:"center",gap:8}}>
             <button style={btnBase} onClick={prevM}
               onMouseEnter={e=>{e.currentTarget.style.borderColor=C.accent;e.currentTarget.style.color=C.accent;}}
               onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textSub;}}
@@ -1529,7 +1900,7 @@ export default function PortfolioTracker(){
 
           <div style={{flex:1}}/>
 
-          {/* ARS / USD toggle */}
+          {/* ARS / USD toggle — always visible */}
           <div style={{
             display:"flex",alignItems:"center",background:C.card,
             border:`1px solid ${C.border}`,borderRadius:9,padding:3,gap:2,
@@ -1621,7 +1992,8 @@ export default function PortfolioTracker(){
           </button>
         </header>
 
-        <main style={{padding:"26px 28px 52px",maxWidth:1380,margin:"0 auto"}}>
+        {activeTab==="eot"&&<EOTView showARS={showARS}/>}
+        <main style={{display:activeTab==="portfolio"?"block":"none",padding:"26px 28px 52px",maxWidth:1380,margin:"0 auto"}}>
 
           {/* ── Grand Totals ── */}
           <div style={{marginBottom:22}} className="fu">
@@ -1663,7 +2035,7 @@ export default function PortfolioTracker(){
                   {grandDolarizadoDisp!==null?fmt(grandDolarizadoDisp):"—"}
                 </div>
                 <div style={{fontSize:10,color:"#5a5a72",fontFamily:"'DM Mono',monospace"}}>
-                  {showARS?"ARS":"USD"} · Dólares + CEDEARs + Crypto
+                  {showARS?"ARS":"USD"} · Dólares + CEDEARs (÷ MEP) + Crypto
                 </div>
               </div>
 
