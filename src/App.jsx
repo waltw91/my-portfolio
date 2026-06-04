@@ -456,18 +456,15 @@ function SectionPieChart({ data, toDisplay, meta, noFx, dispCurrency }) {
 
   return (
     <div style={{
-      width: 220, flexShrink: 0,
+      width: "100%",
       background: C.card, border: `1px solid ${C.border}`,
-      borderRadius: "0 0 14px 14px", borderTop: "none",
-      padding: "16px 14px",
-      display: "flex", flexDirection: "column", alignItems: "center", gap: 12,
+      borderTop: "none",
+      padding: "16px 20px",
+      display: "flex", flexDirection: "row", alignItems: "center", gap: 24,
+      flexWrap: "wrap",
     }}>
-      <div style={{color:C.textMuted,fontSize:10,fontWeight:600,letterSpacing:"0.1em",textTransform:"uppercase",alignSelf:"flex-start"}}>
-        Distribución
-      </div>
-
       {/* Donut */}
-      <div style={{position:"relative",width:130,height:130}}>
+      <div style={{position:"relative",width:160,height:160,flexShrink:0}}>
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie
@@ -521,7 +518,8 @@ function SectionPieChart({ data, toDisplay, meta, noFx, dispCurrency }) {
       </div>
 
       {/* Legend */}
-      <div style={{width:"100%",display:"flex",flexDirection:"column",gap:5}}>
+      <div style={{flex:1,minWidth:200,display:"flex",flexDirection:"column",gap:6}}>
+        <div style={{color:C.textMuted,fontSize:10,fontWeight:600,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:4}}>Distribución</div>
         {chartData.map((d,i)=>{
           const pct = (d.value/total)*100;
           return (
@@ -954,9 +952,9 @@ function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCo
         </div>
       </div>
 
-      {/* Table + pie side by side */}
-      <div style={{display:"flex",alignItems:"flex-start",gap:0}}>
-      <div style={{flex:1,overflowX:"auto",border:`1px solid ${C.border}`,borderTop:"none",borderRadius:"0 0 14px 14px",background:C.card}}>
+      {/* Table full width, pie below */}
+      <div style={{display:"flex",flexDirection:"column",gap:0}}>
+      <div style={{overflowX:"auto",border:`1px solid ${C.border}`,borderTop:"none",borderRadius:"0 0 14px 14px",background:C.card}}>
         <table style={{width:"100%",borderCollapse:"collapse",minWidth:780}}>
           <thead>
             <tr>
