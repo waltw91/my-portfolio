@@ -15,8 +15,10 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, LineChart, Line, XAx
 // v2.3  Copiar button — copies tickers, names and buy prices to next month
 // v2.4  CEDEARs prices now in ARS, converted to USD via MEP (not CCL)
 // v2.5  EOT tab: line chart + summary cards + monthly breakdown table
+// v2.6  Expenses tab: flexible categories, inline editing, monthly totals
+// v2.7  Expenses: orange accent, fixed delete (inline confirm replaces window.confirm)
 // ─────────────────────────────────────────────────────────────────────────────
-const APP_VERSION = "2.5";
+const APP_VERSION = "2.7";
 const APP_BUILD   = new Date("2026-05-23").toISOString().slice(0,10);
 
 
@@ -1579,6 +1581,406 @@ function EOTView({ showARS }) {
   );
 }
 
+
+// ── Expenses Tab ──────────────────────────────────────────────────────────────
+// Storage: "expenses:{year}" → { categories: [{id, name, items: [{id, name, note, months:{1..12}}]}] }
+// Each month value is a string (ARS amount, optionally "400 USD" annotation)
+
+function expKey(year) { return `expenses:${year}`; }
+
+function makeExpId() { return `e${Date.now()}${Math.floor(Math.random()*1000)}`; }
+
+const EXPENSE_MONTHS = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+
+function loadExpenses(year) {
+  try {
+    const r = localStorage.getItem(expKey(year));
+    return r ? JSON.parse(r) : { categories: [] };
+  } catch { return { categories: [] }; }
+}
+function saveExpenses(year, data) {
+  try { localStorage.setItem(expKey(year), JSON.stringify(data)); } catch {}
+}
+
+// ── Inline editable cell ──────────────────────────────────────────────────────
+function ExpCell({ value, onChange, color }) {
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft]     = React.useState(value || "");
+  const inputRef              = React.useRef(null);
+
+  React.useEffect(() => { if (editing && inputRef.current) inputRef.current.focus(); }, [editing]);
+
+  function commit() {
+    setEditing(false);
+    onChange(draft.trim());
+  }
+
+  if (editing) return (
+    <input
+      ref={inputRef}
+      value={draft}
+      onChange={e => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={e => { if (e.key === "Enter") commit(); if (e.key === "Escape") { setDraft(value||""); setEditing(false); } }}
+      style={{
+        background: C.surface, border: `1px solid ${color}`,
+        borderRadius: 6, color: C.text,
+        fontFamily: "'DM Mono',monospace", fontSize: 12,
+        padding: "3px 7px", width: "100%", outline: "none",
+        textAlign: "right", boxSizing: "border-box",
+      }}
+    />
+  );
+
+  const numVal = parseFloat((value||"").replace(/[^0-9.]/g,""));
+  const hasUSD = (value||"").toUpperCase().includes("USD");
+  const isEmpty = !value || value.trim() === "" || value.trim() === "0";
+
+  return (
+    <div
+      onClick={() => { setDraft(value||""); setEditing(true); }}
+      style={{
+        cursor: "pointer", minHeight: 28,
+        display: "flex", alignItems: "center", justifyContent: "flex-end",
+        borderRadius: 6, padding: "3px 6px",
+        transition: "background 0.15s",
+        color: isEmpty ? C.textMuted : hasUSD ? C.crypto : C.text,
+        fontFamily: "'DM Mono',monospace", fontSize: 12,
+      }}
+      onMouseEnter={e => e.currentTarget.style.background = `${color}12`}
+      onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+      title="Clic para editar"
+    >
+      {isEmpty ? <span style={{opacity:0.25}}>—</span> : value}
+    </div>
+  );
+}
+
+// ── Expenses view ─────────────────────────────────────────────────────────────
+function ExpensesView() {
+  const now = new Date();
+  const [year, setYear]       = React.useState(now.getFullYear());
+  const [data, setData]       = React.useState(() => loadExpenses(now.getFullYear()));
+  const [editingCat, setEditingCat]   = React.useState(null);
+  const [editingItem, setEditingItem] = React.useState(null);
+  const [catDraft, setCatDraft]       = React.useState("");
+  const [itemDraft, setItemDraft]     = React.useState("");
+  const [confirmCat, setConfirmCat]   = React.useState(null); // catId pending delete confirm
+  const [confirmItem, setConfirmItem] = React.useState(null); // {catId,itemId} pending delete
+
+  // Reload when year changes
+  React.useEffect(() => {
+    setData(loadExpenses(year));
+    setEditingCat(null); setEditingItem(null);
+  }, [year]);
+
+  // Persist on every data change
+  React.useEffect(() => { saveExpenses(year, data); }, [data, year]);
+
+  function update(fn) { setData(prev => fn(JSON.parse(JSON.stringify(prev)))); }
+
+  // ── Category ops ─────────────────────────────────────────────────────────
+  function addCategory() {
+    update(d => { d.categories.push({ id: makeExpId(), name: "Nueva categoría", items: [] }); return d; });
+  }
+  function renameCategory(catId, name) {
+    update(d => { const c = d.categories.find(c=>c.id===catId); if(c) c.name=name; return d; });
+    setEditingCat(null);
+  }
+  function deleteCategory(catId) {
+    update(d => { d.categories = d.categories.filter(c=>c.id!==catId); return d; });
+    setConfirmCat(null);
+  }
+  function moveCategory(catId, dir) {
+    update(d => {
+      const i = d.categories.findIndex(c=>c.id===catId);
+      const j = i + dir;
+      if (j < 0 || j >= d.categories.length) return d;
+      [d.categories[i], d.categories[j]] = [d.categories[j], d.categories[i]];
+      return d;
+    });
+  }
+
+  // ── Item ops ─────────────────────────────────────────────────────────────
+  function addItem(catId) {
+    update(d => {
+      const c = d.categories.find(c=>c.id===catId);
+      if (c) c.items.push({ id: makeExpId(), name: "Nuevo ítem", note: "", months: {} });
+      return d;
+    });
+  }
+  function renameItem(catId, itemId, name) {
+    update(d => {
+      const c = d.categories.find(c=>c.id===catId);
+      if (c) { const it = c.items.find(i=>i.id===itemId); if(it) it.name = name; }
+      return d;
+    });
+    setEditingItem(null);
+  }
+  function deleteItem(catId, itemId) {
+    update(d => {
+      const c = d.categories.find(c=>c.id===catId);
+      if (c) c.items = c.items.filter(i=>i.id!==itemId);
+      return d;
+    });
+  }
+  function setMonthValue(catId, itemId, month, value) {
+    update(d => {
+      const c = d.categories.find(c=>c.id===catId);
+      if (c) {
+        const it = c.items.find(i=>i.id===itemId);
+        if (it) { if (!it.months) it.months = {}; it.months[month] = value; }
+      }
+      return d;
+    });
+  }
+
+  // ── Totals ────────────────────────────────────────────────────────────────
+  function parseAmt(v) { return parseFloat((v||"").replace(/[^0-9.]/g,"")) || 0; }
+  function colTotal(m) {
+    return data.categories.flatMap(c=>c.items).reduce((s,it)=>s+parseAmt(it.months?.[m]),0);
+  }
+  function rowTotal(it) {
+    return Object.values(it.months||{}).reduce((s,v)=>s+parseAmt(v),0);
+  }
+
+  const accentColor = "#f97316"; // orange for expenses tab
+
+  // ── Year picker ───────────────────────────────────────────────────────────
+  const yearRange = Array.from({length:6},(_,i)=>now.getFullYear()-2+i);
+
+  const thSt = {
+    padding:"10px 10px", textAlign:"right", fontSize:10, fontWeight:500,
+    letterSpacing:"0.1em", textTransform:"uppercase",
+    color:C.textMuted, borderBottom:`1px solid ${C.border}`,
+    fontFamily:"'DM Mono',monospace", whiteSpace:"nowrap",
+    background:C.surface, position:"sticky", top:0, zIndex:2,
+  };
+
+  return (
+    <div style={{padding:"28px 28px 52px", maxWidth:1380, margin:"0 auto"}}>
+
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:24,flexWrap:"wrap",gap:12}}>
+        <div>
+          <h2 style={{fontFamily:"'Nunito',sans-serif",fontSize:22,fontWeight:800,color:C.text,margin:0,lineHeight:1}}>
+            Gastos <span style={{color:accentColor}}>{year}</span>
+          </h2>
+          <p style={{fontSize:12,color:C.textMuted,margin:"4px 0 0",fontFamily:"'DM Mono',monospace"}}>
+            Todos los valores en ARS · USD se anota como referencia
+          </p>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          {/* Year selector */}
+          <div style={{display:"flex",alignItems:"center",gap:3,background:C.card,border:`1px solid ${C.border}`,borderRadius:9,padding:3}}>
+            {yearRange.map(y=>{
+              const active=y===year;
+              return (
+                <button key={y} onClick={()=>setYear(y)} style={{
+                  background:active?accentColor:"transparent",border:"none",
+                  color:active?"#fff":C.textMuted,
+                  fontFamily:"'DM Mono',monospace",fontSize:12,fontWeight:600,
+                  padding:"5px 12px",cursor:"pointer",borderRadius:7,
+                  transition:"all 0.2s",
+                }}>{y}</button>
+              );
+            })}
+          </div>
+          <button onClick={addCategory} style={{
+            background:`${accentColor}18`,border:`1px solid ${accentColor}60`,
+            color:accentColor,fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:600,
+            padding:"8px 16px",cursor:"pointer",borderRadius:9,
+            display:"flex",alignItems:"center",gap:6,transition:"all 0.2s",
+          }}
+            onMouseEnter={e=>e.currentTarget.style.background=`${accentColor}30`}
+            onMouseLeave={e=>e.currentTarget.style.background=`${accentColor}18`}
+          >+ Categoría</button>
+        </div>
+      </div>
+
+      {/* Empty state */}
+      {data.categories.length === 0 && (
+        <div style={{
+          display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+          minHeight:300,gap:16,color:C.textMuted,
+          background:C.card,border:`1px solid ${C.border}`,borderRadius:16,
+        }}>
+          <div style={{fontSize:48}}>💸</div>
+          <div style={{fontFamily:"'Nunito',sans-serif",fontSize:18,fontWeight:700,color:C.text}}>Sin categorías aún</div>
+          <div style={{fontSize:13,color:C.textMuted,textAlign:"center",maxWidth:300,lineHeight:1.6}}>
+            Hacé clic en <strong style={{color:accentColor}}>+ Categoría</strong> para agregar tu primera categoría de gastos.
+          </div>
+        </div>
+      )}
+
+      {/* Main table */}
+      {data.categories.length > 0 && (
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:16,overflow:"hidden",marginBottom:24}}>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",minWidth:1100}}>
+              <thead>
+                <tr>
+                  <th style={{...thSt,textAlign:"left",width:220,position:"sticky",left:0,zIndex:3,paddingLeft:20}}>Ítem</th>
+                  {EXPENSE_MONTHS.map((m,i)=>(
+                    <th key={i} style={{...thSt,width:90}}>{m}</th>
+                  ))}
+                  <th style={{...thSt,width:110,color:accentColor}}>Total</th>
+                  <th style={{...thSt,width:44}}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.categories.map((cat,ci)=>(
+                  <React.Fragment key={cat.id}>
+                    {/* Category header row */}
+                    <tr style={{background:`${accentColor}0a`}}>
+                      <td colSpan={15} style={{padding:"8px 20px",borderBottom:`1px solid ${C.border}`}}>
+                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          {/* Move up/down */}
+                          <button onClick={()=>moveCategory(cat.id,-1)} disabled={ci===0} style={{background:"transparent",border:"none",color:ci===0?C.textMuted:C.textSub,cursor:ci===0?"default":"pointer",fontSize:12,padding:"0 3px",opacity:ci===0?0.3:1}}>▲</button>
+                          <button onClick={()=>moveCategory(cat.id,1)} disabled={ci===data.categories.length-1} style={{background:"transparent",border:"none",color:ci===data.categories.length-1?C.textMuted:C.textSub,cursor:ci===data.categories.length-1?"default":"pointer",fontSize:12,padding:"0 3px",opacity:ci===data.categories.length-1?0.3:1}}>▼</button>
+
+                          {editingCat===cat.id ? (
+                            <input autoFocus value={catDraft}
+                              onChange={e=>setCatDraft(e.target.value)}
+                              onBlur={()=>renameCategory(cat.id,catDraft||cat.name)}
+                              onKeyDown={e=>{if(e.key==="Enter")renameCategory(cat.id,catDraft||cat.name);if(e.key==="Escape")setEditingCat(null);}}
+                              style={{background:C.surface,border:`1px solid ${accentColor}`,borderRadius:6,color:C.text,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,padding:"3px 8px",outline:"none",minWidth:180}}
+                            />
+                          ) : (
+                            <span style={{fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,color:accentColor,fontStyle:"italic",cursor:"pointer"}}
+                              onClick={()=>{setCatDraft(cat.name);setEditingCat(cat.id);}}>
+                              {cat.name}
+                            </span>
+                          )}
+
+                          <div style={{display:"flex",alignItems:"center",gap:4,marginLeft:"auto"}}>
+                            <button onClick={()=>addItem(cat.id)} style={{
+                              background:`${accentColor}14`,border:`1px solid ${accentColor}40`,
+                              color:accentColor,fontFamily:"'DM Sans',sans-serif",fontSize:11,fontWeight:600,
+                              padding:"4px 10px",cursor:"pointer",borderRadius:7,transition:"all 0.15s",
+                            }}
+                              onMouseEnter={e=>e.currentTarget.style.background=`${accentColor}28`}
+                              onMouseLeave={e=>e.currentTarget.style.background=`${accentColor}14`}
+                            >+ Ítem</button>
+                            {confirmCat===cat.id ? (
+                              <div style={{display:"flex",alignItems:"center",gap:5}}>
+                                <span style={{fontSize:11,color:C.red,fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap"}}>¿Eliminar?</span>
+                                <button onClick={()=>deleteCategory(cat.id)} style={{
+                                  background:C.redBg,border:`1px solid ${C.red}`,
+                                  color:C.red,fontSize:11,fontWeight:600,padding:"5px 10px",
+                                  cursor:"pointer",borderRadius:7,fontFamily:"'DM Sans',sans-serif",
+                                }}>Sí</button>
+                                <button onClick={()=>setConfirmCat(null)} style={{
+                                  background:"transparent",border:`1px solid ${C.border}`,
+                                  color:C.textMuted,fontSize:11,padding:"5px 10px",
+                                  cursor:"pointer",borderRadius:7,fontFamily:"'DM Sans',sans-serif",
+                                }}>No</button>
+                              </div>
+                            ) : (
+                              <button onClick={()=>setConfirmCat(cat.id)} style={{
+                                background:"transparent",border:`1px solid ${C.border}`,
+                                color:C.textMuted,fontSize:13,padding:"6px 12px",
+                                cursor:"pointer",borderRadius:7,transition:"all 0.15s",
+                                minWidth:36,minHeight:34,
+                              }}
+                                onMouseEnter={e=>{e.currentTarget.style.borderColor=C.red;e.currentTarget.style.color=C.red;e.currentTarget.style.background=C.redBg;}}
+                                onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textMuted;e.currentTarget.style.background="transparent";}}
+                                title="Eliminar categoría"
+                              >🗑</button>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+
+                    {/* Item rows */}
+                    {cat.items.length === 0 && (
+                      <tr>
+                        <td colSpan={15} style={{padding:"10px 20px",borderBottom:`1px solid ${C.border}`,color:C.textMuted,fontSize:12,fontStyle:"italic"}}>
+                          Sin ítems — hacé clic en &quot;+ Ítem&quot; para agregar.
+                        </td>
+                      </tr>
+                    )}
+                    {cat.items.map((item,ii)=>(
+                      <tr key={item.id}
+                        onMouseEnter={e=>e.currentTarget.style.background=C.cardHover}
+                        onMouseLeave={e=>e.currentTarget.style.background="transparent"}
+                        style={{transition:"background 0.12s"}}
+                      >
+                        {/* Item name */}
+                        <td style={{padding:"6px 8px 6px 20px",borderBottom:`1px solid ${C.border}`,position:"sticky",left:0,background:"inherit",zIndex:1}}>
+                          {editingItem===item.id ? (
+                            <input autoFocus value={itemDraft}
+                              onChange={e=>setItemDraft(e.target.value)}
+                              onBlur={()=>renameItem(cat.id,item.id,itemDraft||item.name)}
+                              onKeyDown={e=>{if(e.key==="Enter")renameItem(cat.id,item.id,itemDraft||item.name);if(e.key==="Escape")setEditingItem(null);}}
+                              style={{background:C.surface,border:`1px solid ${accentColor}60`,borderRadius:6,color:C.text,fontFamily:"'DM Sans',sans-serif",fontSize:13,padding:"3px 8px",outline:"none",width:"100%",boxSizing:"border-box"}}
+                            />
+                          ) : (
+                            <span style={{fontSize:13,color:C.text,cursor:"pointer"}}
+                              onClick={()=>{setItemDraft(item.name);setEditingItem(item.id);}}>
+                              {item.name}
+                            </span>
+                          )}
+                        </td>
+                        {/* Month cells */}
+                        {EXPENSE_MONTHS.map((_,mi)=>(
+                          <td key={mi} style={{padding:"4px 6px",borderBottom:`1px solid ${C.border}`,minWidth:80}}>
+                            <ExpCell
+                              value={item.months?.[mi+1]||""}
+                              onChange={v=>setMonthValue(cat.id,item.id,mi+1,v)}
+                              color={accentColor}
+                            />
+                          </td>
+                        ))}
+                        {/* Row total */}
+                        <td style={{padding:"6px 10px",borderBottom:`1px solid ${C.border}`,textAlign:"right",fontFamily:"'DM Mono',monospace",fontSize:12,color:accentColor,fontWeight:600,whiteSpace:"nowrap"}}>
+                          {rowTotal(item)>0?fmt(rowTotal(item)):"—"}
+                        </td>
+                        {/* Delete */}
+                        <td style={{padding:"6px 8px",borderBottom:`1px solid ${C.border}`,textAlign:"center"}}>
+                          <button onClick={()=>deleteItem(cat.id,item.id)} style={{
+                            background:"transparent",border:"none",color:C.textMuted,
+                            cursor:"pointer",fontSize:15,padding:"2px 5px",lineHeight:1,borderRadius:5,transition:"all 0.15s",
+                          }}
+                            onMouseEnter={e=>{e.currentTarget.style.color=C.red;e.currentTarget.style.background=C.redBg;}}
+                            onMouseLeave={e=>{e.currentTarget.style.color=C.textMuted;e.currentTarget.style.background="transparent";}}
+                          >×</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </React.Fragment>
+                ))}
+
+                {/* Total mensual row */}
+                <tr style={{background:`${accentColor}14`}}>
+                  <td style={{padding:"12px 20px",borderTop:`2px solid ${accentColor}60`,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,color:accentColor,position:"sticky",left:0,background:`${accentColor}14`}}>
+                    Total mensual
+                  </td>
+                  {EXPENSE_MONTHS.map((_,mi)=>(
+                    <td key={mi} style={{padding:"12px 10px",borderTop:`2px solid ${accentColor}60`,textAlign:"right",fontFamily:"'DM Mono',monospace",fontSize:13,fontWeight:700,color:colTotal(mi+1)>0?C.text:C.textMuted,whiteSpace:"nowrap"}}>
+                      {colTotal(mi+1)>0?fmt(colTotal(mi+1)):"—"}
+                    </td>
+                  ))}
+                  <td style={{padding:"12px 10px",borderTop:`2px solid ${accentColor}60`,textAlign:"right",fontFamily:"'DM Mono',monospace",fontSize:14,fontWeight:700,color:accentColor,whiteSpace:"nowrap"}}>
+                    {fmt(EXPENSE_MONTHS.reduce((_,__,mi)=>_+colTotal(mi+1),0))}
+                  </td>
+                  <td style={{borderTop:`2px solid ${accentColor}60`}}/>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Footer note */}
+      <div style={{fontSize:11,color:C.textMuted,fontFamily:"'DM Mono',monospace",textAlign:"right"}}>
+        Los datos se guardan automáticamente · Clic en cualquier celda para editar · USD se anota como referencia (ej: &quot;400 USD&quot;)
+      </div>
+    </div>
+  );
+}
+
 // ── App ──────────────────────────────────────────────────────────────────────
 export default function PortfolioTracker(){
   const now=new Date();
@@ -1860,7 +2262,7 @@ export default function PortfolioTracker(){
 
           {/* Tab switcher */}
           <div style={{display:"flex",alignItems:"center",gap:2,background:C.card,border:`1px solid ${C.border}`,borderRadius:9,padding:3}}>
-            {[{key:"portfolio",label:"Portfolio",icon:"📊"},{key:"eot",label:"EOT",icon:"📈"}].map(t=>{
+            {[{key:"portfolio",label:"Portfolio",icon:"📊"},{key:"eot",label:"EOT",icon:"📈"},{key:"expenses",label:"Expenses",icon:"💸"}].map(t=>{
               const active=activeTab===t.key;
               return (
                 <button key={t.key} onClick={()=>setActiveTab(t.key)} style={{
@@ -1991,6 +2393,7 @@ export default function PortfolioTracker(){
         </header>
 
         {activeTab==="eot"&&<EOTView showARS={showARS}/>}
+        {activeTab==="expenses"&&<ExpensesView/>}
         <main style={{display:activeTab==="portfolio"?"block":"none",padding:"26px 28px 52px",maxWidth:1380,margin:"0 auto"}}>
 
           {/* ── Grand Totals ── */}
