@@ -17,8 +17,9 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, LineChart, Line, XAx
 // v2.5  EOT tab: line chart + summary cards + monthly breakdown table
 // v2.6  Expenses tab: flexible categories, inline editing, monthly totals
 // v2.7  Expenses: orange accent, fixed delete (inline confirm replaces window.confirm)
+// v2.8  Expenses: sparkline per item, comment bubble per month cell
 // ─────────────────────────────────────────────────────────────────────────────
-const APP_VERSION = "2.7";
+const APP_VERSION = "2.8";
 const APP_BUILD   = new Date("2026-05-23").toISOString().slice(0,10);
 
 
@@ -1656,6 +1657,150 @@ function ExpCell({ value, onChange, color }) {
   );
 }
 
+
+// ── Expense item sparkline ────────────────────────────────────────────────────
+function ExpSparkline({ item, color }) {
+  const vals = Array.from({length:12},(_,i)=>{
+    const v = parseFloat((item.months?.[i+1]||"").replace(/[^0-9.]/g,"")) || null;
+    return { m: i+1, v };
+  });
+  const defined = vals.filter(d=>d.v!==null);
+  if (defined.length < 2) return (
+    <div style={{width:80,height:28,display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <span style={{fontSize:9,color:C.textMuted,fontFamily:"'DM Mono',monospace"}}>—</span>
+    </div>
+  );
+
+  const maxV = Math.max(...defined.map(d=>d.v));
+  const minV = Math.min(...defined.map(d=>d.v));
+  const range = maxV - minV || 1;
+  const W=80, H=28, pad=3;
+
+  // Build polyline points
+  const points = vals.map((d,i)=>{
+    const x = pad + (i/(vals.length-1))*(W-pad*2);
+    const y = d.v!==null
+      ? pad + (1-(d.v-minV)/range)*(H-pad*2)
+      : null;
+    return {x,y,v:d.v};
+  });
+
+  // Segments: only draw lines between consecutive non-null points
+  const segments = [];
+  for (let i=0;i<points.length-1;i++){
+    if(points[i].y!==null&&points[i+1].y!==null)
+      segments.push([points[i],points[i+1]]);
+  }
+
+  const last = [...points].reverse().find(p=>p.y!==null);
+  const first = points.find(p=>p.y!==null);
+  const trend = (last&&first) ? last.v - first.v : 0;
+  const lineColor = trend > 0 ? C.red : trend < 0 ? C.green : C.amber; // up=costs rising=red, down=saving=green
+
+  return (
+    <svg width={W} height={H} style={{display:"block"}}>
+      {segments.map(([a,b],i)=>(
+        <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+          stroke={lineColor} strokeWidth={1.5} strokeLinecap="round"/>
+      ))}
+      {last&&<circle cx={last.x} cy={last.y} r={2.5} fill={lineColor}/>}
+    </svg>
+  );
+}
+
+// ── Expense month comment cell ────────────────────────────────────────────────
+function ExpCommentCell({ comment, onSave, color }) {
+  const [open, setOpen]       = React.useState(false);
+  const [draft, setDraft]     = React.useState(comment||"");
+  const [editing, setEditing] = React.useState(false);
+  const ref                   = React.useRef(null);
+
+  React.useEffect(()=>{
+    if(!open) return;
+    function h(e){ if(ref.current&&!ref.current.contains(e.target)){setOpen(false);setEditing(false);} }
+    document.addEventListener("mousedown",h);
+    return ()=>document.removeEventListener("mousedown",h);
+  },[open]);
+
+  const has = comment && comment.trim().length > 0;
+
+  function handleSave(){
+    onSave(draft.trim());
+    setEditing(false);
+    if(!draft.trim()) setOpen(false);
+  }
+  function handleDelete(){
+    onSave("");
+    setDraft("");
+    setEditing(false);
+    setOpen(false);
+  }
+
+  return (
+    <div style={{position:"relative",display:"inline-flex"}} ref={ref}>
+      <button onClick={()=>{setOpen(o=>!o);setEditing(false);setDraft(comment||"");}} style={{
+        background:has?`${color}18`:"transparent",
+        border:`1px solid ${has?color+"50":C.border}`,
+        color:has?color:C.textMuted,
+        borderRadius:6,padding:"3px 6px",cursor:"pointer",
+        fontSize:11,lineHeight:1,transition:"all 0.2s",
+        display:"flex",alignItems:"center",gap:3,minHeight:24,
+      }}
+        onMouseEnter={e=>{e.currentTarget.style.borderColor=color;e.currentTarget.style.color=color;e.currentTarget.style.background=`${color}18`;}}
+        onMouseLeave={e=>{e.currentTarget.style.borderColor=has?`${color}50`:C.border;e.currentTarget.style.color=has?color:C.textMuted;e.currentTarget.style.background=has?`${color}18`:"transparent";}}
+        title={has?"Ver comentario":"Agregar comentario"}
+      >
+        💬{has&&<span style={{width:5,height:5,borderRadius:"50%",background:color,flexShrink:0}}/>}
+      </button>
+
+      {open&&(
+        <div style={{
+          position:"absolute",top:"calc(100% + 6px)",right:0,
+          width:220,background:C.card,border:`1px solid ${color}40`,
+          borderRadius:10,boxShadow:"0 8px 28px #00000070",
+          zIndex:600,overflow:"hidden",
+          animation:"fadeUp 0.15s ease forwards",
+        }}>
+          <div style={{padding:"8px 12px",background:`${color}12`,borderBottom:`1px solid ${color}20`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span style={{fontSize:10,fontWeight:600,color,letterSpacing:"0.07em",textTransform:"uppercase"}}>Nota</span>
+            <button onClick={()=>{setOpen(false);setEditing(false);}} style={{background:"transparent",border:"none",color:C.textMuted,cursor:"pointer",fontSize:14,lineHeight:1}}>×</button>
+          </div>
+          <div style={{padding:"10px 12px"}}>
+            {editing ? (
+              <textarea autoFocus value={draft} onChange={e=>setDraft(e.target.value)}
+                placeholder="Escribí tu comentario..."
+                style={{width:"100%",minHeight:60,background:C.surface,border:`1px solid ${color}40`,borderRadius:7,color:C.text,fontFamily:"'DM Sans',sans-serif",fontSize:12,padding:"6px 8px",outline:"none",resize:"vertical",boxSizing:"border-box"}}
+                onFocus={e=>e.target.style.borderColor=color}
+                onBlur={e=>e.target.style.borderColor=`${color}40`}
+              />
+            ) : (
+              <div style={{fontSize:12,color:has?C.text:C.textMuted,lineHeight:1.5,fontStyle:has?"normal":"italic",minHeight:30}}>
+                {has?comment:"Sin comentario. Hacé clic en \"Nueva\" para agregar."}
+              </div>
+            )}
+          </div>
+          <div style={{padding:"8px 12px",borderTop:`1px solid ${C.border}`,display:"flex",gap:5}}>
+            {editing ? (
+              <>
+                <button onClick={handleSave} style={{flex:1,background:`${color}20`,border:`1px solid ${color}60`,color,borderRadius:6,padding:"5px 0",cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>✓ Guardar</button>
+                <button onClick={()=>setEditing(false)} style={{flex:1,background:"transparent",border:`1px solid ${C.border}`,color:C.textMuted,borderRadius:6,padding:"5px 0",cursor:"pointer",fontSize:11,fontFamily:"'DM Sans',sans-serif"}}>Cancelar</button>
+              </>
+            ) : (
+              <>
+                <button onClick={()=>setEditing(true)} style={{flex:1,background:`${color}14`,border:`1px solid ${color}40`,color,borderRadius:6,padding:"5px 0",cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>{has?"✎ Editar":"+ Nueva"}</button>
+                <button onClick={handleDelete} disabled={!has} style={{flex:1,background:"transparent",border:`1px solid ${C.border}`,color:has?C.textMuted:C.textMuted,borderRadius:6,padding:"5px 0",cursor:has?"pointer":"default",fontSize:11,opacity:has?1:0.4,fontFamily:"'DM Sans',sans-serif"}}
+                  onMouseEnter={e=>{if(has){e.currentTarget.style.borderColor=C.red;e.currentTarget.style.color=C.red;e.currentTarget.style.background=C.redBg;}}}
+                  onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textMuted;e.currentTarget.style.background="transparent";}}
+                >🗑 Borrar</button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Expenses view ─────────────────────────────────────────────────────────────
 function ExpensesView() {
   const now = new Date();
@@ -1730,6 +1875,19 @@ function ExpensesView() {
       if (c) {
         const it = c.items.find(i=>i.id===itemId);
         if (it) { if (!it.months) it.months = {}; it.months[month] = value; }
+      }
+      return d;
+    });
+  }
+  function setMonthComment(catId, itemId, month, comment) {
+    update(d => {
+      const c = d.categories.find(c=>c.id===catId);
+      if (c) {
+        const it = c.items.find(i=>i.id===itemId);
+        if (it) {
+          if (!it.comments) it.comments = {};
+          it.comments[month] = comment;
+        }
       }
       return d;
     });
@@ -1825,6 +1983,7 @@ function ExpensesView() {
                     <th key={i} style={{...thSt,width:90}}>{m}</th>
                   ))}
                   <th style={{...thSt,width:110,color:accentColor}}>Total</th>
+                  <th style={{...thSt,width:90,color:C.textMuted}}>Tendencia</th>
                   <th style={{...thSt,width:44}}></th>
                 </tr>
               </thead>
@@ -1931,11 +2090,22 @@ function ExpensesView() {
                               onChange={v=>setMonthValue(cat.id,item.id,mi+1,v)}
                               color={accentColor}
                             />
+                            <div style={{display:"flex",justifyContent:"flex-end",marginTop:2}}>
+                              <ExpCommentCell
+                                comment={item.comments?.[mi+1]||""}
+                                onSave={v=>setMonthComment(cat.id,item.id,mi+1,v)}
+                                color={accentColor}
+                              />
+                            </div>
                           </td>
                         ))}
                         {/* Row total */}
                         <td style={{padding:"6px 10px",borderBottom:`1px solid ${C.border}`,textAlign:"right",fontFamily:"'DM Mono',monospace",fontSize:12,color:accentColor,fontWeight:600,whiteSpace:"nowrap"}}>
                           {rowTotal(item)>0?fmt(rowTotal(item)):"—"}
+                        </td>
+                        {/* Sparkline */}
+                        <td style={{padding:"6px 10px",borderBottom:`1px solid ${C.border}`,textAlign:"center"}}>
+                          <ExpSparkline item={item} color={accentColor}/>
                         </td>
                         {/* Delete */}
                         <td style={{padding:"6px 8px",borderBottom:`1px solid ${C.border}`,textAlign:"center"}}>
@@ -1965,6 +2135,7 @@ function ExpensesView() {
                   <td style={{padding:"12px 10px",borderTop:`2px solid ${accentColor}60`,textAlign:"right",fontFamily:"'DM Mono',monospace",fontSize:14,fontWeight:700,color:accentColor,whiteSpace:"nowrap"}}>
                     {fmt(EXPENSE_MONTHS.reduce((_,__,mi)=>_+colTotal(mi+1),0))}
                   </td>
+                  <td style={{borderTop:`2px solid ${accentColor}60`}}/>
                   <td style={{borderTop:`2px solid ${accentColor}60`}}/>
                 </tr>
               </tbody>
