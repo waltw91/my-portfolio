@@ -18,8 +18,11 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, LineChart, Line, XAx
 // v2.6  Expenses tab: flexible categories, inline editing, monthly totals
 // v2.7  Expenses: orange accent, fixed delete (inline confirm replaces window.confirm)
 // v2.8  Expenses: sparkline per item, comment bubble per month cell
+// v2.9  Fix: Dólares→ARS uses MEP (not CCL); Total Invested Crypto uses cryptoRate
+// v2.10 Expenses: comment bubble moved from item cells to month column headers only
+// v2.11 Renamed app to Fintrack; added Dolarización % card in Grand Totals
 // ─────────────────────────────────────────────────────────────────────────────
-const APP_VERSION = "2.8";
+const APP_VERSION = "2.11";
 const APP_BUILD   = new Date("2026-05-23").toISOString().slice(0,10);
 
 
@@ -1168,13 +1171,13 @@ function CashPanel({ cash, setCash, showARS, fxRates }) {
     if (!v) return null;
     const n = parseFloat(v)||0;
     if (!showARS) return n;
-    return cclRate ? n*cclRate : null;
+    return mepRate ? n*mepRate : null;
   }
 
   const totalPesos   = (parseFloat(cash.uala)||0) + (parseFloat(cash.mp)||0);
   const totalDolares = (parseFloat(cash.fisicos)||0) + (parseFloat(cash.online_banco)||0) + (parseFloat(cash.online_iol)||0);
   const totalPesosDisp   = showARS ? totalPesos   : (mepRate ? totalPesos/mepRate : null);
-  const totalDolaresDisp = showARS ? (cclRate ? totalDolares*cclRate : null) : totalDolares;
+  const totalDolaresDisp = showARS ? (mepRate ? totalDolares*mepRate : null) : totalDolares;
 
 
 
@@ -1327,7 +1330,7 @@ function EOTView({ showARS }) {
       const mervalDisp  = toDisp(mervalARS,  true,  mepRate);
       const cryptoDisp  = toDisp(cryptoUSD,  false, cryptoRate);
       const pesosDisp   = toDisp(pesosARS,   true,  mepRate);
-      const dolaresDisp = toDisp(dolaresUSD, false, cclRate);
+      const dolaresDisp = toDisp(dolaresUSD, false, mepRate);
 
       const allDisp = [cedearDisp, mervalDisp, cryptoDisp, pesosDisp, dolaresDisp];
       const grandTotal = allDisp.every(v=>v!==null) ? allDisp.reduce((a,v)=>a+v,0) : null;
@@ -1810,13 +1813,17 @@ function ExpensesView() {
   const [editingItem, setEditingItem] = React.useState(null);
   const [catDraft, setCatDraft]       = React.useState("");
   const [itemDraft, setItemDraft]     = React.useState("");
-  const [confirmCat, setConfirmCat]   = React.useState(null); // catId pending delete confirm
-  const [confirmItem, setConfirmItem] = React.useState(null); // {catId,itemId} pending delete
+  const [confirmCat, setConfirmCat]   = React.useState(null);
+  const [confirmItem, setConfirmItem] = React.useState(null);
+  const [monthComments, setMonthComments] = React.useState(() => {
+    try { const r = localStorage.getItem(`expenses:comments:${new Date().getFullYear()}`); return r ? JSON.parse(r) : {}; } catch { return {}; }
+  });
 
   // Reload when year changes
   React.useEffect(() => {
     setData(loadExpenses(year));
     setEditingCat(null); setEditingItem(null);
+    try { const r = localStorage.getItem(`expenses:comments:${year}`); setMonthComments(r ? JSON.parse(r) : {}); } catch { setMonthComments({}); }
   }, [year]);
 
   // Persist on every data change
@@ -1890,6 +1897,13 @@ function ExpensesView() {
         }
       }
       return d;
+    });
+  }
+  function saveMonthHeaderComment(month, comment) {
+    setMonthComments(prev => {
+      const next = { ...prev, [month]: comment };
+      try { localStorage.setItem(`expenses:comments:${year}`, JSON.stringify(next)); } catch {}
+      return next;
     });
   }
 
@@ -1980,7 +1994,16 @@ function ExpensesView() {
                 <tr>
                   <th style={{...thSt,textAlign:"left",width:220,position:"sticky",left:0,zIndex:3,paddingLeft:20}}>Ítem</th>
                   {EXPENSE_MONTHS.map((m,i)=>(
-                    <th key={i} style={{...thSt,width:90}}>{m}</th>
+                    <th key={i} style={{...thSt,width:90,minWidth:90}}>
+                      <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+                        <span>{m}</span>
+                        <ExpCommentCell
+                          comment={monthComments?.[i+1]||""}
+                          onSave={v=>saveMonthHeaderComment(i+1,v)}
+                          color={accentColor}
+                        />
+                      </div>
+                    </th>
                   ))}
                   <th style={{...thSt,width:110,color:accentColor}}>Total</th>
                   <th style={{...thSt,width:90,color:C.textMuted}}>Tendencia</th>
@@ -2090,13 +2113,7 @@ function ExpensesView() {
                               onChange={v=>setMonthValue(cat.id,item.id,mi+1,v)}
                               color={accentColor}
                             />
-                            <div style={{display:"flex",justifyContent:"flex-end",marginTop:2}}>
-                              <ExpCommentCell
-                                comment={item.comments?.[mi+1]||""}
-                                onSave={v=>setMonthComment(cat.id,item.id,mi+1,v)}
-                                color={accentColor}
-                              />
-                            </div>
+
                           </td>
                         ))}
                         {/* Row total */}
@@ -2264,7 +2281,7 @@ export default function PortfolioTracker(){
   const cclRate = parseFloat(fxRates?.ccl)||null;
   // Convert for display
   const pesosDisplay  = showARS ? totalPesosARS   : (mepRate ? totalPesosARS/mepRate : null);
-  const dolaresDisplay= showARS ? (cclRate ? totalDolaresUSD*cclRate : null) : totalDolaresUSD;
+  const dolaresDisplay= showARS ? (mepRate ? totalDolaresUSD*mepRate : null) : totalDolaresUSD;
 
   // Full chart data: investment sections + cash positions
   const cashChartItems = [
@@ -2299,9 +2316,11 @@ export default function PortfolioTracker(){
     ? totalDolaresUSD + cedearUSD + cryptoNativeUSD
     : null;
   // Convert to ARS if toggle is ARS (CEDEARs already native ARS, crypto/dólares × CCL)
+  // Dolarizado in ARS: CEDEARs already native ARS, Dólares ×MEP, Crypto ×cryptoRate
+  const cryptoRateApp = parseFloat(fxRates?.crypto)||null;
   const grandDolarizadoDisp = showARS
-    ? (cclRate
-        ? (cedearNativeARS + totalDolaresUSD * cclRate + cryptoNativeUSD * cclRate)
+    ? (mepRate && cryptoRateApp
+        ? (cedearNativeARS + totalDolaresUSD * mepRate + cryptoNativeUSD * cryptoRateApp)
         : null)
     : grandDolarizadoUSD;
 
@@ -2313,8 +2332,9 @@ export default function PortfolioTracker(){
   const investedCryptoUSD = nativeCostOf("crypto");
   // Convert each to display currency then sum
   const investedCedearDisp = showARS ? investedCedearARS : (mepRate ? investedCedearARS/mepRate : null);
-  const investedMervalDisp = !showARS && mepRate ? investedMervalARS/mepRate : showARS ? investedMervalARS : null;
-  const investedCryptoDisp = showARS && cclRate ? investedCryptoUSD*cclRate : !showARS ? investedCryptoUSD : null;
+  const investedMervalDisp = showARS ? investedMervalARS : (mepRate ? investedMervalARS/mepRate : null);
+  const cryptoRateInv = parseFloat(fxRates?.crypto)||null;
+  const investedCryptoDisp = showARS ? (cryptoRateInv ? investedCryptoUSD*cryptoRateInv : null) : investedCryptoUSD;
   const grandTotalInvestedDisp = (investedCedearDisp!==null && investedMervalDisp!==null && investedCryptoDisp!==null)
     ? investedCedearDisp + investedMervalDisp + investedCryptoDisp : null;
 
@@ -2324,6 +2344,11 @@ export default function PortfolioTracker(){
   // Grand Total All = Pesos side + Dolarizado side (both in display currency)
   const grandTotalAllDisp = (grandPesosDisp!==null && grandDolarizadoDisp!==null)
     ? grandPesosDisp + grandDolarizadoDisp
+    : null;
+
+  // Dolarización % = Dolarizado / Grand Total All
+  const dolarizacionPct = (grandDolarizadoDisp!==null && grandTotalAllDisp!==null && grandTotalAllDisp>0)
+    ? (grandDolarizadoDisp / grandTotalAllDisp) * 100
     : null;
 
   // P&L on invested = totalVal vs totalInvested (in same display currency)
@@ -2425,7 +2450,7 @@ export default function PortfolioTracker(){
               boxShadow:`0 0 18px ${C.accent}40`,
             }}>📊</div>
             <span style={{fontFamily:"'Nunito',sans-serif",fontWeight:700,fontSize:19,letterSpacing:"0",color:C.text}}>
-              Port<span style={{color:C.accent}}>folio</span>
+              Fin<span style={{color:C.accent}}>track</span>
             </span>
           </div>
 
@@ -2573,7 +2598,7 @@ export default function PortfolioTracker(){
               color:C.textMuted,fontSize:10,fontWeight:600,letterSpacing:"0.12em",
               textTransform:"uppercase",marginBottom:12,
             }}>Grand Totals</div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:16}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:16}}>
 
               {/* 1. Pesos */}
               <div style={{
@@ -2609,6 +2634,35 @@ export default function PortfolioTracker(){
                 <div style={{fontSize:10,color:"#5a5a72",fontFamily:"'DM Mono',monospace"}}>
                   {showARS?"ARS":"USD"} · Dólares + CEDEARs (÷ MEP) + Crypto
                 </div>
+              </div>
+
+
+              {/* Dolarización % */}
+              <div style={{
+                background:C.card,border:"1px solid #26262e",borderRadius:16,
+                padding:"20px 22px",position:"relative",overflow:"hidden",
+                boxShadow:"0 4px 24px #00000030",
+              }}>
+                <div style={{position:"absolute",top:0,left:0,right:0,height:3,background:"linear-gradient(90deg,#34d399,#34d39900)",borderRadius:"16px 16px 0 0"}}/>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                  <span style={{fontSize:16}}>🌐</span>
+                  <span style={{fontSize:11,fontWeight:600,color:C.textMuted,letterSpacing:"0.06em",textTransform:"uppercase"}}>Dolarización</span>
+                </div>
+                <div style={{fontFamily:"'Nunito',sans-serif",fontSize:32,fontWeight:800,color:"#34d399",marginBottom:4,lineHeight:1}}>
+                  {dolarizacionPct!==null?fmt(dolarizacionPct,1)+"%":"—"}
+                </div>
+                <div style={{fontSize:10,color:"#5a5a72",fontFamily:"'DM Mono',monospace"}}>
+                  CEDEARs + Crypto + Dólares
+                </div>
+                {dolarizacionPct!==null&&(
+                  <div style={{marginTop:10,height:4,background:C.border,borderRadius:99,overflow:"hidden"}}>
+                    <div style={{
+                      width:`${Math.min(dolarizacionPct,100)}%`,height:"100%",
+                      background:"linear-gradient(90deg,#34d399,#34d39960)",
+                      borderRadius:99,transition:"width 0.7s cubic-bezier(.16,1,.3,1)",
+                    }}/>
+                  </div>
+                )}
               </div>
 
               {/* 3. Grand Total */}
@@ -2849,7 +2903,7 @@ export default function PortfolioTracker(){
                 fontFamily:"'DM Mono',monospace",fontSize:10,fontWeight:600,
                 padding:"2px 8px",borderRadius:99,letterSpacing:"0.06em",
               }}>v{APP_VERSION}</span>
-              <span style={{fontSize:11,color:C.textMuted}}>Portfolio Tracker · {MONTHS[month]} {year}</span>
+              <span style={{fontSize:11,color:C.textMuted}}>Fintrack · {MONTHS[month]} {year}</span>
             </div>
             <span style={{fontSize:11,color:C.textMuted}}>CEDEARs, Merval y Crypto: lookup local · Datos guardados en localStorage</span>
           </div>
