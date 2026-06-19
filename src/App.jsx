@@ -2327,14 +2327,28 @@ export default function PortfolioTracker(){
   // 3. Total Portfolio — already computed as totalVal (respects USD/ARS toggle)
 
   // 4. Total Invested = cost basis of CEDEARs + Merval + Crypto (in display currency)
-  const investedCedearARS = nativeCostOf("cedears");  // now native ARS
-  const investedMervalARS = nativeCostOf("pesos");
-  const investedCryptoUSD = nativeCostOf("crypto");
-  // Convert each to display currency then sum
-  const investedCedearDisp = showARS ? investedCedearARS : (mepRate ? investedCedearARS/mepRate : null);
-  const investedMervalDisp = showARS ? investedMervalARS : (mepRate ? investedMervalARS/mepRate : null);
+  // Rule: if native value is 0, disp is 0 — no rate needed.
+  // Only returns null if native value > 0 but required rate is missing.
+  const investedCedearARS = nativeCostOf("cedears");  // native ARS
+  const investedMervalARS = nativeCostOf("pesos");    // native ARS
+  const investedCryptoUSD = nativeCostOf("crypto");   // native USD
   const cryptoRateInv = parseFloat(fxRates?.crypto)||null;
-  const investedCryptoDisp = showARS ? (cryptoRateInv ? investedCryptoUSD*cryptoRateInv : null) : investedCryptoUSD;
+
+  function investDisp(nativeVal, isARS) {
+    if (nativeVal === 0) return 0;
+    if (showARS) {
+      if (isARS) return nativeVal;
+      return cryptoRateInv ? nativeVal * cryptoRateInv : null;
+    } else {
+      if (!isARS) return nativeVal;
+      return mepRate ? nativeVal / mepRate : null;
+    }
+  }
+
+  const investedCedearDisp = investDisp(investedCedearARS, true);
+  const investedMervalDisp = investDisp(investedMervalARS, true);
+  const investedCryptoDisp = investDisp(investedCryptoUSD, false);
+
   const grandTotalInvestedDisp = (investedCedearDisp!==null && investedMervalDisp!==null && investedCryptoDisp!==null)
     ? investedCedearDisp + investedMervalDisp + investedCryptoDisp : null;
 
