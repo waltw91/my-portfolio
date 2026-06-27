@@ -21,8 +21,11 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, LineChart, Line, XAx
 // v2.9  Fix: Dólares→ARS uses MEP (not CCL); Total Invested Crypto uses cryptoRate
 // v2.10 Expenses: comment bubble moved from item cells to month column headers only
 // v2.11 Renamed app to Fintrack; added Dolarización % card in Grand Totals
+// v2.12 Trading tab scaffold: Portfolio, Active Trades, Historic Trades sections
+// v2.13 Trading: Portafolio Actual table with all 9 columns
+// v2.14 Trading: pie chart added to Portafolio Actual (uses % or amount)
 // ─────────────────────────────────────────────────────────────────────────────
-const APP_VERSION = "2.11";
+const APP_VERSION = "2.14";
 const APP_BUILD   = new Date("2026-05-23").toISOString().slice(0,10);
 
 
@@ -2169,6 +2172,447 @@ function ExpensesView() {
   );
 }
 
+
+
+// ── Trading helpers ───────────────────────────────────────────────────────────
+function loadTrading(key) {
+  try { const r = localStorage.getItem(`trading:${key}`); return r ? JSON.parse(r) : []; }
+  catch { return []; }
+}
+function saveTrading(key, data) {
+  try { localStorage.setItem(`trading:${key}`, JSON.stringify(data)); } catch {}
+}
+function emptyTradingPortfolioRow() {
+  return {
+    id: `tp${Date.now()}${Math.floor(Math.random()*1000)}`,
+    ticker: "", name: "", market: "", beta: "", sector: "", type: "", amount: "", percent: "", target: "",
+  };
+}
+
+// Market options
+const TRADING_MARKETS  = ["BYMA","NYSE","NASDAQ","MERVAL","CRYPTO","OTHER"];
+const TRADING_TYPES    = ["Acción","ETF","Bono","Crypto","CEDEARs","Otro"];
+const TRADING_SECTORS  = [
+  "Consumer Staples","Healthcare","Energy","Technology","Financials",
+  "Telecom","Industrials","Materials","Real Estate","Utilities","Crypto","—"
+];
+
+
+// ── Trading: Portafolio Actual table ─────────────────────────────────────────
+function TradingPortfolioTable() {
+  const COLOR = "#06b6d4";
+  const [rows, setRows] = React.useState(() => {
+    const saved = loadTrading("portfolio");
+    return saved.length ? saved : [emptyTradingPortfolioRow()];
+  });
+
+  // Auto-save on every change
+  React.useEffect(() => { saveTrading("portfolio", rows); }, [rows]);
+
+  function updateRow(id, field, value) {
+    setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
+  }
+  function addRow() { setRows(prev => [...prev, emptyTradingPortfolioRow()]); }
+  function removeRow(id) { setRows(prev => prev.filter(r => r.id !== id)); }
+
+  const inpSt = {
+    background: "transparent", border: "none", outline: "none",
+    color: C.text, fontFamily: "'DM Mono',monospace",
+    fontSize: 12, padding: "4px 6px", width: "100%",
+    borderRadius: 6, transition: "background 0.15s",
+  };
+  const thSt = {
+    color: C.textMuted, fontSize: 10, fontWeight: 500,
+    letterSpacing: "0.1em", textTransform: "uppercase",
+    padding: "10px 12px", textAlign: "left",
+    borderBottom: `1px solid ${C.border}`,
+    fontFamily: "'DM Mono',monospace", whiteSpace: "nowrap",
+    background: C.surface,
+  };
+  const tdSt = {
+    padding: "8px 12px", borderBottom: `1px solid ${C.border}`,
+    verticalAlign: "middle", fontSize: 13,
+  };
+
+  // Totals
+  const totalAmount  = rows.reduce((s, r) => s + (parseFloat(r.amount)  || 0), 0);
+  const totalPercent = rows.reduce((s, r) => s + (parseFloat(r.percent) || 0), 0);
+
+  // Inline select helper
+  function SelectCell({ id, field, value, options }) {
+    return (
+      <select value={value} onChange={e => updateRow(id, field, e.target.value)}
+        style={{ ...inpSt, cursor: "pointer", appearance: "none", WebkitAppearance: "none" }}
+        onFocus={e => e.target.style.background = `${COLOR}12`}
+        onBlur={e  => e.target.style.background = "transparent"}
+      >
+        <option value="">—</option>
+        {options.map(o => <option key={o} value={o}>{o}</option>)}
+      </select>
+    );
+  }
+
+  return (
+    <div>
+      {/* Toolbar */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 20px", borderBottom: `1px solid ${C.border}` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {rows.filter(r => r.ticker).length > 0 && (
+            <span style={{
+              background: `${COLOR}18`, color: COLOR,
+              fontFamily: "'DM Mono',monospace", fontSize: 10, fontWeight: 600,
+              padding: "2px 8px", borderRadius: 99,
+            }}>{rows.filter(r => r.ticker).length} posiciones</span>
+          )}
+        </div>
+        <button onClick={addRow} style={{
+          background: `${COLOR}14`, border: `1px solid ${COLOR}44`,
+          color: COLOR, fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 600,
+          padding: "7px 16px", cursor: "pointer", borderRadius: 9, transition: "all 0.2s",
+        }}
+          onMouseEnter={e => e.currentTarget.style.background = `${COLOR}28`}
+          onMouseLeave={e => e.currentTarget.style.background = `${COLOR}14`}
+        >+ Agregar posición</button>
+      </div>
+
+      {/* Table */}
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
+          <thead>
+            <tr>
+              <th style={{ ...thSt, width: 80  }}>Ticker</th>
+              <th style={{ ...thSt             }}>Empresa</th>
+              <th style={{ ...thSt, width: 110 }}>Mercado</th>
+              <th style={{ ...thSt, width: 70, textAlign: "right" }}>Beta</th>
+              <th style={{ ...thSt, width: 150 }}>Sector</th>
+              <th style={{ ...thSt, width: 100 }}>Tipo</th>
+              <th style={{ ...thSt, width: 110, textAlign: "right" }}>Monto</th>
+              <th style={{ ...thSt, width: 90,  textAlign: "right" }}>%</th>
+              <th style={{ ...thSt, width: 90,  textAlign: "right" }}>Target</th>
+              <th style={{ ...thSt, width: 40  }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 && (
+              <tr><td colSpan={10} style={{ ...tdSt, textAlign: "center", color: C.textMuted, padding: 36 }}>
+                Sin posiciones. Hacé clic en &quot;+ Agregar posición&quot;.
+              </td></tr>
+            )}
+            {rows.map(row => (
+              <tr key={row.id}
+                onMouseEnter={e => e.currentTarget.style.background = C.cardHover}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                style={{ transition: "background 0.12s" }}
+              >
+                {/* Ticker */}
+                <td style={tdSt}>
+                  <input value={row.ticker} onChange={e => updateRow(row.id, "ticker", e.target.value.toUpperCase())}
+                    placeholder="—" style={{ ...inpSt, fontWeight: 700, color: COLOR, letterSpacing: "0.05em", width: 68 }}
+                    onFocus={e => e.target.style.background = `${COLOR}12`}
+                    onBlur={e  => e.target.style.background = "transparent"}
+                  />
+                </td>
+                {/* Name */}
+                <td style={tdSt}>
+                  <input value={row.name} onChange={e => updateRow(row.id, "name", e.target.value)}
+                    placeholder="Nombre…" style={{ ...inpSt, color: C.textSub }}
+                    onFocus={e => e.target.style.background = C.surface}
+                    onBlur={e  => e.target.style.background = "transparent"}
+                  />
+                </td>
+                {/* Market */}
+                <td style={tdSt}>
+                  <SelectCell id={row.id} field="market" value={row.market} options={TRADING_MARKETS}/>
+                </td>
+                {/* Beta */}
+                <td style={{ ...tdSt, textAlign: "right" }}>
+                  <input value={row.beta} onChange={e => updateRow(row.id, "beta", e.target.value)}
+                    placeholder="0.00" type="text" inputMode="decimal"
+                    style={{ ...inpSt, textAlign: "right", width: 56 }}
+                    onFocus={e => e.target.style.background = C.surface}
+                    onBlur={e  => e.target.style.background = "transparent"}
+                  />
+                </td>
+                {/* Sector */}
+                <td style={tdSt}>
+                  <SelectCell id={row.id} field="sector" value={row.sector} options={TRADING_SECTORS}/>
+                </td>
+                {/* Type */}
+                <td style={tdSt}>
+                  <SelectCell id={row.id} field="type" value={row.type} options={TRADING_TYPES}/>
+                </td>
+                {/* Amount */}
+                <td style={{ ...tdSt, textAlign: "right" }}>
+                  <input value={row.amount} onChange={e => updateRow(row.id, "amount", e.target.value)}
+                    placeholder="0" type="text" inputMode="decimal"
+                    style={{ ...inpSt, textAlign: "right", width: 90 }}
+                    onFocus={e => e.target.style.background = C.surface}
+                    onBlur={e  => e.target.style.background = "transparent"}
+                  />
+                </td>
+                {/* Percent */}
+                <td style={{ ...tdSt, textAlign: "right" }}>
+                  <input value={row.percent} onChange={e => updateRow(row.id, "percent", e.target.value)}
+                    placeholder="0%" type="text" inputMode="decimal"
+                    style={{ ...inpSt, textAlign: "right", width: 60 }}
+                    onFocus={e => e.target.style.background = C.surface}
+                    onBlur={e  => e.target.style.background = "transparent"}
+                  />
+                </td>
+                {/* Target */}
+                <td style={{ ...tdSt, textAlign: "right" }}>
+                  <input value={row.target} onChange={e => updateRow(row.id, "target", e.target.value)}
+                    placeholder="0%" type="text" inputMode="decimal"
+                    style={{ ...inpSt, textAlign: "right", width: 60 }}
+                    onFocus={e => e.target.style.background = C.surface}
+                    onBlur={e  => e.target.style.background = "transparent"}
+                  />
+                </td>
+                {/* Delete */}
+                <td style={{ ...tdSt, textAlign: "center" }}>
+                  <button onClick={() => removeRow(row.id)} style={{
+                    background: "transparent", border: "none", color: C.textMuted,
+                    cursor: "pointer", fontSize: 16, padding: "2px 6px", lineHeight: 1,
+                    borderRadius: 6, transition: "all 0.18s",
+                  }}
+                    onMouseEnter={e => { e.currentTarget.style.color = C.red; e.currentTarget.style.background = C.redBg; }}
+                    onMouseLeave={e => { e.currentTarget.style.color = C.textMuted; e.currentTarget.style.background = "transparent"; }}
+                  >×</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          {/* Totals footer */}
+          {rows.some(r => r.amount || r.percent) && (
+            <tfoot>
+              <tr style={{ background: `${COLOR}0c` }}>
+                <td colSpan={6} style={{ padding: "10px 12px", borderTop: `2px solid ${COLOR}40`, fontFamily: "'DM Sans',sans-serif", fontWeight: 700, fontSize: 12, color: COLOR }}>
+                  Totales
+                </td>
+                <td style={{ padding: "10px 12px", borderTop: `2px solid ${COLOR}40`, textAlign: "right", fontFamily: "'DM Mono',monospace", fontSize: 12, fontWeight: 700, color: C.text }}>
+                  {totalAmount > 0 ? fmt(totalAmount) : "—"}
+                </td>
+                <td style={{ padding: "10px 12px", borderTop: `2px solid ${COLOR}40`, textAlign: "right", fontFamily: "'DM Mono',monospace", fontSize: 12, fontWeight: 700, color: totalPercent > 100 ? C.red : totalPercent === 100 ? C.green : C.amber }}>
+                  {totalPercent > 0 ? fmt(totalPercent, 1) + "%" : "—"}
+                </td>
+                <td colSpan={2} style={{ borderTop: `2px solid ${COLOR}40` }} />
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+
+      {/* Pie chart — shown when there is at least one row with amount or percent */}
+      {(() => {
+        // Build chart data — prefer % column, fall back to amount
+        const byPercent = rows.filter(r => r.ticker && parseFloat(r.percent) > 0);
+        const byAmount  = rows.filter(r => r.ticker && parseFloat(r.amount)  > 0);
+        const usePercent = byPercent.length > 0;
+        const chartRows = usePercent ? byPercent : byAmount;
+        if (chartRows.length < 1) return null;
+
+        const CHART_COLORS = [
+          "#06b6d4","#f59e0b","#a78bfa","#34d399","#f87171",
+          "#60a5fa","#fb923c","#e879f9","#4ade80","#facc15",
+          "#38bdf8","#c084fc",
+        ];
+
+        const chartData = chartRows.map(r => ({
+          name:  r.ticker,
+          label: r.name || r.ticker,
+          value: parseFloat(usePercent ? r.percent : r.amount) || 0,
+        }));
+        const total = chartData.reduce((s, d) => s + d.value, 0);
+
+        return (
+          <div style={{
+            borderTop: `1px solid ${COLOR}28`,
+            padding: "20px 22px",
+            display: "grid",
+            gridTemplateColumns: "200px 1fr",
+            gap: 28,
+            alignItems: "center",
+          }}>
+            {/* Donut */}
+            <div style={{ position: "relative", width: 200, height: 200 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={chartData} cx="50%" cy="50%"
+                    innerRadius={54} outerRadius={80}
+                    paddingAngle={2} dataKey="value" strokeWidth={0}
+                  >
+                    {chartData.map((_, i) => (
+                      <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, fontFamily: "'DM Mono',monospace", fontSize: 11 }}
+                    formatter={(v, n) => [`${fmt(v, 1)}${usePercent ? "%" : ""}`, n]}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+              {/* Center label */}
+              <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", textAlign: "center", pointerEvents: "none" }}>
+                <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 10, color: C.textMuted }}>{chartData.length} pos.</div>
+              </div>
+            </div>
+
+            {/* Legend */}
+            <div>
+              <div style={{ color: C.textMuted, fontSize: 10, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 }}>
+                Distribución {usePercent ? "(% asignado)" : "(por monto)"}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                {chartData.map((d, i) => {
+                  const pct = total > 0 ? (d.value / total) * 100 : 0;
+                  const col = CHART_COLORS[i % CHART_COLORS.length];
+                  return (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ width: 8, height: 8, borderRadius: 2, background: col, flexShrink: 0 }} />
+                      <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 12, color: col, fontWeight: 600, width: 52, flexShrink: 0 }}>{d.name}</span>
+                      <span style={{ fontSize: 11, color: C.textSub, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.label !== d.name ? d.label : ""}</span>
+                      <div style={{ width: 100, height: 5, background: C.border, borderRadius: 99, overflow: "hidden", flexShrink: 0 }}>
+                        <div style={{ width: `${pct}%`, height: "100%", background: col, borderRadius: 99 }} />
+                      </div>
+                      <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11, color: C.text, width: 48, textAlign: "right", flexShrink: 0 }}>
+                        {fmt(d.value, 1)}{usePercent ? "%" : ""}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
+
+// ── Trading Tab ───────────────────────────────────────────────────────────────
+// Three sections: Portfolio · Active Trades · Historic Trades
+// Storage keys:
+//   "trading:portfolio"     → current holdings
+//   "trading:active"        → open/active trades
+//   "trading:historic"      → closed operations
+
+const TRADING_ACCENT = "#06b6d4"; // cyan
+
+const TRADING_SECTIONS = [
+  { key: "portfolio", label: "Portafolio Actual",    icon: "📋", color: "#06b6d4" },
+  { key: "active",    label: "Operaciones Activas",  icon: "⚡", color: "#f59e0b" },
+  { key: "historic",  label: "Histórico de Trades",  icon: "🗂",  color: "#a78bfa" },
+];
+
+function TradingView() {
+  const [section, setSection] = React.useState("portfolio");
+
+  const active = TRADING_SECTIONS.find(s => s.key === section);
+
+  return (
+    <div style={{ padding: "28px 28px 52px", maxWidth: 1380, margin: "0 auto" }}>
+
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h2 style={{ fontFamily: "'Nunito',sans-serif", fontSize: 22, fontWeight: 800, color: C.text, margin: 0, lineHeight: 1 }}>
+            Trading <span style={{ color: TRADING_ACCENT }}>Desk</span>
+          </h2>
+          <p style={{ fontSize: 12, color: C.textMuted, margin: "4px 0 0", fontFamily: "'DM Mono',monospace" }}>
+            Portafolio · Operaciones activas · Historial
+          </p>
+        </div>
+      </div>
+
+      {/* Section switcher */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 24, flexWrap: "wrap" }}>
+        {TRADING_SECTIONS.map(s => {
+          const isActive = section === s.key;
+          return (
+            <button key={s.key} onClick={() => setSection(s.key)} style={{
+              display: "flex", alignItems: "center", gap: 8,
+              padding: "10px 20px",
+              background: isActive ? `${s.color}18` : C.card,
+              border: `1px solid ${isActive ? s.color + "60" : C.border}`,
+              borderRadius: 10, cursor: "pointer",
+              fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: isActive ? 600 : 400,
+              color: isActive ? s.color : C.textMuted,
+              transition: "all 0.2s",
+              boxShadow: isActive ? `0 0 16px ${s.color}20` : "none",
+            }}
+              onMouseEnter={e => { if (!isActive) { e.currentTarget.style.borderColor = s.color + "40"; e.currentTarget.style.color = s.color; }}}
+              onMouseLeave={e => { if (!isActive) { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.textMuted; }}}
+            >
+              <span style={{ fontSize: 16 }}>{s.icon}</span>
+              {s.label}
+              {isActive && <div style={{ width: 6, height: 6, borderRadius: "50%", background: s.color, marginLeft: 2 }} />}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Active section indicator stripe */}
+      <div style={{
+        height: 2, borderRadius: 1, marginBottom: 24,
+        background: `linear-gradient(90deg, ${active.color}, ${active.color}00)`,
+        transition: "background 0.3s",
+      }} />
+
+      {/* Section content — placeholder until next prompt */}
+      <div style={{
+        background: C.card, border: `1px solid ${active.color}28`,
+        borderRadius: 16, overflow: "hidden",
+      }}>
+        {/* Section header */}
+        <div style={{
+          padding: "16px 22px",
+          background: `linear-gradient(90deg, ${active.color}12, transparent)`,
+          borderBottom: `1px solid ${C.border}`,
+          display: "flex", alignItems: "center", gap: 12,
+        }}>
+          <span style={{ fontSize: 20 }}>{active.icon}</span>
+          <div>
+            <div style={{ fontFamily: "'Nunito',sans-serif", fontSize: 17, fontWeight: 700, color: C.text, lineHeight: 1.1 }}>
+              {active.label}
+            </div>
+            <div style={{ color: C.textMuted, fontSize: 11, marginTop: 2 }}>
+              {section === "portfolio" && "Posiciones actuales · holdings vigentes"}
+              {section === "active"    && "Operaciones abiertas · trades en curso"}
+              {section === "historic"  && "Operaciones cerradas · historial completo"}
+            </div>
+          </div>
+        </div>
+
+        {/* Section body */}
+        {section === "portfolio" && <TradingPortfolioTable />}
+        {section !== "portfolio" && (
+          <div style={{
+            display: "flex", flexDirection: "column",
+            alignItems: "center", justifyContent: "center",
+            minHeight: 320, gap: 14, padding: 40,
+          }}>
+            <div style={{ fontSize: 52 }}>{active.icon}</div>
+            <div style={{ fontFamily: "'Nunito',sans-serif", fontSize: 18, fontWeight: 700, color: C.text }}>
+              {active.label}
+            </div>
+            <div style={{
+              fontSize: 13, color: C.textMuted, textAlign: "center",
+              maxWidth: 360, lineHeight: 1.7,
+              background: `${active.color}0c`,
+              border: `1px solid ${active.color}20`,
+              borderRadius: 10, padding: "14px 20px",
+            }}>
+              Próximamente — los campos de esta sección se definirán en el siguiente prompt.
+            </div>
+          </div>
+        )}
+      </div>
+
+    </div>
+  );
+}
+
 // ── App ──────────────────────────────────────────────────────────────────────
 export default function PortfolioTracker(){
   const now=new Date();
@@ -2472,7 +2916,7 @@ export default function PortfolioTracker(){
 
           {/* Tab switcher */}
           <div style={{display:"flex",alignItems:"center",gap:2,background:C.card,border:`1px solid ${C.border}`,borderRadius:9,padding:3}}>
-            {[{key:"portfolio",label:"Portfolio",icon:"📊"},{key:"eot",label:"EOT",icon:"📈"},{key:"expenses",label:"Expenses",icon:"💸"}].map(t=>{
+            {[{key:"portfolio",label:"Portfolio",icon:"📊"},{key:"eot",label:"EOT",icon:"📈"},{key:"expenses",label:"Expenses",icon:"💸"},{key:"trading",label:"Trading",icon:"⚡"}].map(t=>{
               const active=activeTab===t.key;
               return (
                 <button key={t.key} onClick={()=>setActiveTab(t.key)} style={{
@@ -2604,6 +3048,7 @@ export default function PortfolioTracker(){
 
         {activeTab==="eot"&&<EOTView showARS={showARS}/>}
         {activeTab==="expenses"&&<ExpensesView/>}
+        {activeTab==="trading"&&<TradingView/>}
         <main style={{display:activeTab==="portfolio"?"block":"none",padding:"26px 28px 52px",maxWidth:1380,margin:"0 auto"}}>
 
           {/* ── Grand Totals ── */}
