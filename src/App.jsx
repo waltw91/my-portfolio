@@ -24,8 +24,10 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, LineChart, Line, XAx
 // v2.12 Trading tab scaffold: Portfolio, Active Trades, Historic Trades sections
 // v2.13 Trading: Portafolio Actual table with all 9 columns
 // v2.14 Trading: pie chart added to Portafolio Actual (uses % or amount)
+// v2.15 Trading: Operaciones Activas table with all columns + auto-calculations
+// v2.16 Trading: Histórico de Trades table + Cerrar button transfers trade to historic
 // ─────────────────────────────────────────────────────────────────────────────
-const APP_VERSION = "2.14";
+const APP_VERSION = "2.16";
 const APP_BUILD   = new Date("2026-05-23").toISOString().slice(0,10);
 
 
@@ -2182,6 +2184,28 @@ function loadTrading(key) {
 function saveTrading(key, data) {
   try { localStorage.setItem(`trading:${key}`, JSON.stringify(data)); } catch {}
 }
+function emptyTradingHistoricRow(base) {
+  return {
+    id: `th${Date.now()}${Math.floor(Math.random()*1000)}`,
+    activo:          base?.activo          || "",
+    cant:            base?.cant            || "",
+    fechaCompra:     base?.fechaCompra     || "",
+    precioCompraARS: base?.precioCompraARS || "",
+    mepPromedioCompra: base?.mepPromedioCompra || "",
+    precioActualARS: base?.precioActualARS || "",
+    fechaCierre:     base?.fechaCierre     || new Date().toLocaleDateString("es-AR",{day:"2-digit",month:"2-digit",year:"2-digit"}).replace(/\//g,"/"),
+  };
+}
+
+function emptyTradingActiveRow() {
+  return {
+    id: `ta${Date.now()}${Math.floor(Math.random()*1000)}`,
+    activo: "", cant: "", fechaCompra: "", precioCompraARS: "",
+    mepPromedioCompra: "", precioUSD: "", precioActualARS: "",
+    precioActualUSD: "", mepActual: "",
+  };
+}
+
 function emptyTradingPortfolioRow() {
   return {
     id: `tp${Date.now()}${Math.floor(Math.random()*1000)}`,
@@ -2490,6 +2514,544 @@ function TradingPortfolioTable() {
   );
 }
 
+
+// ── Trading: Operaciones Activas table ───────────────────────────────────────
+function TradingActiveTable() {
+  const COLOR = "#f59e0b";
+  const [rows, setRows] = React.useState(() => {
+    const saved = loadTrading("active");
+    return saved.length ? saved : [emptyTradingActiveRow()];
+  });
+  const [mepHoy, setMepHoy] = React.useState(() => {
+    try { return localStorage.getItem("trading:mepHoy") || ""; } catch { return ""; }
+  });
+
+  React.useEffect(() => { saveTrading("active", rows); }, [rows]);
+  React.useEffect(() => {
+    try { localStorage.setItem("trading:mepHoy", mepHoy); } catch {}
+  }, [mepHoy]);
+
+  function updateRow(id, field, value) {
+    setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
+  }
+  function addRow() { setRows(prev => [...prev, emptyTradingActiveRow()]); }
+  function removeRow(id) { setRows(prev => prev.filter(r => r.id !== id)); }
+  function closeToHistoric(row) {
+    // Add to historic
+    const historic = loadTrading("historic");
+    const closed = emptyTradingHistoricRow(row);
+    saveTrading("historic", [closed, ...historic]);
+    // Remove from active
+    setRows(prev => prev.filter(r => r.id !== row.id));
+  }
+
+  // Calculations per row
+  function calc(row) {
+    const cant          = parseFloat(row.cant)            || 0;
+    const pCompraARS    = parseFloat(row.precioCompraARS)  || 0;
+    const mepCompra     = parseFloat(row.mepPromedioCompra)|| 0;
+    const pActualARS    = parseFloat(row.precioActualARS)  || 0;
+    const mepHoyNum     = parseFloat(mepHoy)              || 0;
+
+    // Precio en USD at purchase (ARS ÷ MEP de compra)
+    const precioCompraUSD = mepCompra > 0 ? pCompraARS / mepCompra : null;
+
+    // Precio actual USD (ARS actual ÷ MEP hoy)
+    const precioActualUSD = (pActualARS > 0 && mepHoyNum > 0) ? pActualARS / mepHoyNum : null;
+
+    // P/L % ARS
+    const plPctARS = (pCompraARS > 0 && pActualARS > 0)
+      ? ((pActualARS - pCompraARS) / pCompraARS) * 100 : null;
+
+    // P/L % USD
+    const plPctUSD = (precioCompraUSD !== null && precioActualUSD !== null && precioCompraUSD > 0)
+      ? ((precioActualUSD - precioCompraUSD) / precioCompraUSD) * 100 : null;
+
+    // Days held
+    let diasTenencia = null;
+    if (row.fechaCompra) {
+      const parts = row.fechaCompra.split("/");
+      if (parts.length === 3) {
+        const d = new Date(`${parts[2]}-${parts[1].padStart(2,"0")}-${parts[0].padStart(2,"0")}`);
+        if (!isNaN(d)) diasTenencia = Math.floor((Date.now() - d.getTime()) / 86400000);
+      }
+    }
+
+    return { precioCompraUSD, precioActualUSD, plPctARS, plPctUSD, diasTenencia };
+  }
+
+  const inpSt = {
+    background: "transparent", border: "none", outline: "none",
+    color: C.text, fontFamily: "'DM Mono',monospace",
+    fontSize: 12, padding: "4px 6px", width: "100%",
+    borderRadius: 6, transition: "background 0.15s",
+  };
+  const thSt = {
+    color: C.textMuted, fontSize: 10, fontWeight: 500,
+    letterSpacing: "0.08em", textTransform: "uppercase",
+    padding: "10px 10px", textAlign: "left",
+    borderBottom: `1px solid ${C.border}`,
+    fontFamily: "'DM Mono',monospace", whiteSpace: "nowrap",
+    background: C.surface,
+  };
+  const tdSt = {
+    padding: "8px 10px", borderBottom: `1px solid ${C.border}`,
+    verticalAlign: "middle", fontSize: 12,
+  };
+
+  function PnLBadge({ val }) {
+    if (val === null) return <span style={{color:C.textMuted}}>—</span>;
+    return (
+      <span style={{
+        color: pnlColor(val),
+        background: pnlBg(val),
+        fontFamily: "'DM Mono',monospace",
+        fontWeight: 700, fontSize: 12,
+        padding: "2px 7px", borderRadius: 6,
+      }}>{val > 0 ? "+" : ""}{fmt(val, 2)}%</span>
+    );
+  }
+
+  const today = new Date().toLocaleDateString("es-AR", { day:"2-digit", month:"2-digit", year:"numeric" });
+
+  return (
+    <div>
+      {/* MEP Hoy banner */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 16,
+        padding: "10px 20px", borderBottom: `1px solid ${C.border}`,
+        background: `${COLOR}0a`, flexWrap: "wrap",
+      }}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:11,color:C.textMuted,fontFamily:"'DM Mono',monospace",letterSpacing:"0.06em",textTransform:"uppercase"}}>Fecha hoy</span>
+          <span style={{fontSize:12,color:C.text,fontFamily:"'DM Mono',monospace",fontWeight:600}}>{today}</span>
+        </div>
+        <div style={{width:1,height:20,background:C.border}}/>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:11,color:C.textMuted,fontFamily:"'DM Mono',monospace",letterSpacing:"0.06em",textTransform:"uppercase"}}>MEP hoy</span>
+          <span style={{color:C.textMuted,fontSize:13,fontFamily:"'DM Mono',monospace"}}>$</span>
+          <input
+            type="text" inputMode="decimal" value={mepHoy}
+            onChange={e=>setMepHoy(e.target.value)}
+            placeholder="0,00"
+            style={{...inpSt,width:100,background:C.surface,border:`1px solid ${COLOR}40`,borderRadius:7,padding:"4px 10px",color:COLOR,fontWeight:600}}
+          />
+        </div>
+        <div style={{flex:1}}/>
+        {rows.filter(r=>r.activo).length > 0 && (
+          <span style={{background:`${COLOR}18`,color:COLOR,fontFamily:"'DM Mono',monospace",fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:99}}>
+            {rows.filter(r=>r.activo).length} operaciones
+          </span>
+        )}
+        <button onClick={addRow} style={{
+          background:`${COLOR}14`,border:`1px solid ${COLOR}44`,
+          color:COLOR,fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:600,
+          padding:"7px 16px",cursor:"pointer",borderRadius:9,transition:"all 0.2s",
+        }}
+          onMouseEnter={e=>e.currentTarget.style.background=`${COLOR}28`}
+          onMouseLeave={e=>e.currentTarget.style.background=`${COLOR}14`}
+        >+ Agregar</button>
+      </div>
+
+      {/* Color legend */}
+      <div style={{display:"flex",gap:16,padding:"8px 20px",borderBottom:`1px solid ${C.border}`,background:C.surface,flexWrap:"wrap"}}>
+        <span style={{fontSize:10,color:C.textMuted,fontFamily:"'DM Mono',monospace",display:"flex",alignItems:"center",gap:5}}>
+          <span style={{width:10,height:10,borderRadius:2,background:C.green,display:"inline-block"}}/>
+          Verde = completo al comprar
+        </span>
+        <span style={{fontSize:10,color:C.textMuted,fontFamily:"'DM Mono',monospace",display:"flex",alignItems:"center",gap:5}}>
+          <span style={{width:10,height:10,borderRadius:2,background:COLOR,display:"inline-block"}}/>
+          Naranja = actualizar para cálculo actual
+        </span>
+      </div>
+
+      {/* Table */}
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",minWidth:1100}}>
+          <thead>
+            <tr>
+              <th style={{...thSt,width:80}}>Activo</th>
+              <th style={{...thSt,width:70,textAlign:"right"}}>Cant.</th>
+              <th style={{...thSt,width:110}}>F. Compra</th>
+              <th style={{...thSt,width:120,textAlign:"right",color:C.green}}>P. Compra ARS</th>
+              <th style={{...thSt,width:120,textAlign:"right",color:C.green}}>MEP Prom. Compra</th>
+              <th style={{...thSt,width:110,textAlign:"right",color:C.green}}>P. en USD</th>
+              <th style={{...thSt,width:120,textAlign:"right",color:COLOR}}>P. Actual ARS</th>
+              <th style={{...thSt,width:110,textAlign:"right",color:COLOR}}>P. Actual USD</th>
+              <th style={{...thSt,width:90,textAlign:"right"}}>P/L % ARS</th>
+              <th style={{...thSt,width:90,textAlign:"right"}}>P/L % USD</th>
+              <th style={{...thSt,width:80,textAlign:"right"}}>Días</th>
+              <th style={{...thSt,width:80,color:"#a78bfa"}}>Cerrar</th>
+              <th style={{...thSt,width:40}}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 && (
+              <tr><td colSpan={13} style={{...tdSt,textAlign:"center",color:C.textMuted,padding:36}}>
+                Sin operaciones activas.
+              </td></tr>
+            )}
+            {rows.map(row => {
+              const { precioCompraUSD, precioActualUSD, plPctARS, plPctUSD, diasTenencia } = calc(row);
+              return (
+                <tr key={row.id}
+                  onMouseEnter={e=>e.currentTarget.style.background=C.cardHover}
+                  onMouseLeave={e=>e.currentTarget.style.background="transparent"}
+                  style={{transition:"background 0.12s"}}
+                >
+                  {/* Activo */}
+                  <td style={tdSt}>
+                    <input value={row.activo} onChange={e=>updateRow(row.id,"activo",e.target.value.toUpperCase())}
+                      placeholder="—" style={{...inpSt,fontWeight:700,color:COLOR,letterSpacing:"0.05em",width:68}}
+                      onFocus={e=>e.target.style.background=`${COLOR}12`}
+                      onBlur={e=>e.target.style.background="transparent"}
+                    />
+                  </td>
+                  {/* Cant */}
+                  <td style={{...tdSt,textAlign:"right"}}>
+                    <input value={row.cant} onChange={e=>updateRow(row.id,"cant",e.target.value)}
+                      placeholder="0" type="text" inputMode="decimal"
+                      style={{...inpSt,textAlign:"right",width:60}}
+                      onFocus={e=>e.target.style.background=C.surface}
+                      onBlur={e=>e.target.style.background="transparent"}
+                    />
+                  </td>
+                  {/* Fecha compra */}
+                  <td style={tdSt}>
+                    <input value={row.fechaCompra} onChange={e=>updateRow(row.id,"fechaCompra",e.target.value)}
+                      placeholder="dd/mm/aa" style={{...inpSt,width:90}}
+                      onFocus={e=>e.target.style.background=C.surface}
+                      onBlur={e=>e.target.style.background="transparent"}
+                    />
+                  </td>
+                  {/* Precio compra ARS — green (input at buy) */}
+                  <td style={{...tdSt,textAlign:"right",background:`${C.green}06`}}>
+                    <input value={row.precioCompraARS} onChange={e=>updateRow(row.id,"precioCompraARS",e.target.value)}
+                      placeholder="0.00" type="text" inputMode="decimal"
+                      style={{...inpSt,textAlign:"right",width:90,color:C.text}}
+                      onFocus={e=>e.target.style.background=`${C.green}12`}
+                      onBlur={e=>e.target.style.background="transparent"}
+                    />
+                  </td>
+                  {/* MEP promedio compra — green */}
+                  <td style={{...tdSt,textAlign:"right",background:`${C.green}06`}}>
+                    <input value={row.mepPromedioCompra} onChange={e=>updateRow(row.id,"mepPromedioCompra",e.target.value)}
+                      placeholder="0.00" type="text" inputMode="decimal"
+                      style={{...inpSt,textAlign:"right",width:90,color:C.text}}
+                      onFocus={e=>e.target.style.background=`${C.green}12`}
+                      onBlur={e=>e.target.style.background="transparent"}
+                    />
+                  </td>
+                  {/* Precio en USD — calculated */}
+                  <td style={{...tdSt,textAlign:"right",background:`${C.green}06`}}>
+                    <span style={{fontFamily:"'DM Mono',monospace",fontSize:12,color:C.textSub,fontStyle:"italic"}}>
+                      {precioCompraUSD !== null ? `USD ${fmt(precioCompraUSD, 2)}` : "—"}
+                    </span>
+                  </td>
+                  {/* Precio actual ARS — orange (update after buy) */}
+                  <td style={{...tdSt,textAlign:"right",background:`${COLOR}06`}}>
+                    <input value={row.precioActualARS} onChange={e=>updateRow(row.id,"precioActualARS",e.target.value)}
+                      placeholder="0.00" type="text" inputMode="decimal"
+                      style={{...inpSt,textAlign:"right",width:90,color:C.text}}
+                      onFocus={e=>e.target.style.background=`${COLOR}12`}
+                      onBlur={e=>e.target.style.background="transparent"}
+                    />
+                  </td>
+                  {/* Precio actual USD — calculated */}
+                  <td style={{...tdSt,textAlign:"right",background:`${COLOR}06`}}>
+                    <span style={{fontFamily:"'DM Mono',monospace",fontSize:12,color:C.textSub,fontStyle:"italic"}}>
+                      {precioActualUSD !== null ? `USD ${fmt(precioActualUSD, 2)}` : "—"}
+                    </span>
+                  </td>
+                  {/* P/L % ARS */}
+                  <td style={{...tdSt,textAlign:"right"}}>
+                    <PnLBadge val={plPctARS}/>
+                  </td>
+                  {/* P/L % USD */}
+                  <td style={{...tdSt,textAlign:"right"}}>
+                    <PnLBadge val={plPctUSD}/>
+                  </td>
+                  {/* Días de tenencia */}
+                  <td style={{...tdSt,textAlign:"right",fontFamily:"'DM Mono',monospace",color:C.textSub,fontSize:12}}>
+                    {diasTenencia !== null ? diasTenencia : "—"}
+                  </td>
+                  {/* Cerrar trade → histórico */}
+                  <td style={{...tdSt,textAlign:"center"}}>
+                    <button onClick={()=>closeToHistoric(row)} style={{
+                      background:"rgba(167,139,250,0.12)",border:"1px solid rgba(167,139,250,0.4)",
+                      color:"#a78bfa",cursor:"pointer",fontSize:11,fontWeight:600,
+                      padding:"4px 10px",borderRadius:7,transition:"all 0.2s",
+                      fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap",
+                    }}
+                      onMouseEnter={e=>{e.currentTarget.style.background="rgba(167,139,250,0.25)";}}
+                      onMouseLeave={e=>{e.currentTarget.style.background="rgba(167,139,250,0.12)";}}
+                      title="Mover al histórico"
+                    >✓ Cerrar</button>
+                  </td>
+                  {/* Delete */}
+                  <td style={{...tdSt,textAlign:"center"}}>
+                    <button onClick={()=>removeRow(row.id)} style={{
+                      background:"transparent",border:"none",color:C.textMuted,
+                      cursor:"pointer",fontSize:16,padding:"2px 6px",lineHeight:1,
+                      borderRadius:6,transition:"all 0.18s",
+                    }}
+                      onMouseEnter={e=>{e.currentTarget.style.color=C.red;e.currentTarget.style.background=C.redBg;}}
+                      onMouseLeave={e=>{e.currentTarget.style.color=C.textMuted;e.currentTarget.style.background="transparent";}}
+                    >×</button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+
+// ── Trading: Histórico de Trades ─────────────────────────────────────────────
+function TradingHistoricTable() {
+  const COLOR = "#a78bfa";
+  const [rows, setRows] = React.useState(() => {
+    const saved = loadTrading("historic");
+    return saved.length ? saved : [];
+  });
+
+  // Reload whenever historic data might have changed (e.g. after closing a trade)
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      const saved = loadTrading("historic");
+      setRows(saved);
+    }, 500);
+    return () => clearInterval(interval);
+  }, []);
+
+  React.useEffect(() => { saveTrading("historic", rows); }, [rows]);
+
+  function updateRow(id, field, value) {
+    setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
+  }
+  function addRow() { setRows(prev => [emptyTradingHistoricRow(null), ...prev]); }
+  function removeRow(id) {
+    if (!window.confirm("¿Eliminar este registro del historial?")) return;
+    setRows(prev => prev.filter(r => r.id !== id));
+  }
+
+  function calcHistoric(row) {
+    const pCompraARS  = parseFloat(row.precioCompraARS)   || 0;
+    const mepCompra   = parseFloat(row.mepPromedioCompra) || 0;
+    const pCierreARS  = parseFloat(row.precioActualARS)   || 0;
+
+    const precioCompraUSD  = mepCompra > 0 ? pCompraARS / mepCompra : null;
+    const plPctARS = (pCompraARS > 0 && pCierreARS > 0)
+      ? ((pCierreARS - pCompraARS) / pCompraARS) * 100 : null;
+
+    let diasTenencia = null;
+    if (row.fechaCompra && row.fechaCierre) {
+      function parseDate(str) {
+        const p = str.split("/");
+        if (p.length === 3) {
+          const y = p[2].length === 2 ? "20" + p[2] : p[2];
+          const d = new Date(`${y}-${p[1].padStart(2,"0")}-${p[0].padStart(2,"0")}`);
+          return isNaN(d) ? null : d;
+        }
+        return null;
+      }
+      const d1 = parseDate(row.fechaCompra);
+      const d2 = parseDate(row.fechaCierre);
+      if (d1 && d2) diasTenencia = Math.floor((d2 - d1) / 86400000);
+    }
+    return { precioCompraUSD, plPctARS, diasTenencia };
+  }
+
+  const inpSt = {
+    background: "transparent", border: "none", outline: "none",
+    color: C.text, fontFamily: "'DM Mono',monospace",
+    fontSize: 12, padding: "4px 6px", width: "100%",
+    borderRadius: 6, transition: "background 0.15s",
+  };
+  const thSt = {
+    color: C.textMuted, fontSize: 10, fontWeight: 500,
+    letterSpacing: "0.08em", textTransform: "uppercase",
+    padding: "10px 10px", textAlign: "left",
+    borderBottom: `1px solid ${C.border}`,
+    fontFamily: "'DM Mono',monospace", whiteSpace: "nowrap",
+    background: C.surface,
+  };
+  const tdSt = {
+    padding: "8px 10px", borderBottom: `1px solid ${C.border}`,
+    verticalAlign: "middle", fontSize: 12,
+  };
+
+  function PnLBadge({ val }) {
+    if (val === null) return <span style={{color:C.textMuted}}>—</span>;
+    return (
+      <span style={{
+        color: pnlColor(val), background: pnlBg(val),
+        fontFamily: "'DM Mono',monospace", fontWeight: 700, fontSize: 12,
+        padding: "2px 7px", borderRadius: 6,
+      }}>{val > 0 ? "+" : ""}{fmt(val, 2)}%</span>
+    );
+  }
+
+  return (
+    <div>
+      {/* Toolbar */}
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: "12px 20px", borderBottom: `1px solid ${C.border}`,
+        background: `${COLOR}0a`, flexWrap: "wrap", gap: 10,
+      }}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontSize:13,color:C.textMuted,fontFamily:"'DM Mono',monospace"}}>
+            {rows.length} operaciones cerradas
+          </span>
+          {rows.length > 0 && (() => {
+            const wins   = rows.filter(r => calcHistoric(r).plPctARS > 0).length;
+            const losses = rows.filter(r => calcHistoric(r).plPctARS < 0).length;
+            return (
+              <div style={{display:"flex",gap:8}}>
+                {wins   > 0 && <span style={{background:C.greenBg,color:C.green,fontFamily:"'DM Mono',monospace",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:99}}>✓ {wins} wins</span>}
+                {losses > 0 && <span style={{background:C.redBg,  color:C.red,  fontFamily:"'DM Mono',monospace",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:99}}>✗ {losses} losses</span>}
+              </div>
+            );
+          })()}
+        </div>
+        <button onClick={addRow} style={{
+          background:`${COLOR}14`,border:`1px solid ${COLOR}44`,
+          color:COLOR,fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:600,
+          padding:"7px 16px",cursor:"pointer",borderRadius:9,transition:"all 0.2s",
+        }}
+          onMouseEnter={e=>e.currentTarget.style.background=`${COLOR}28`}
+          onMouseLeave={e=>e.currentTarget.style.background=`${COLOR}14`}
+        >+ Agregar manual</button>
+      </div>
+
+      {/* Empty state */}
+      {rows.length === 0 && (
+        <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:200,gap:10,color:C.textMuted,padding:40}}>
+          <div style={{fontSize:40}}>🗂</div>
+          <div style={{fontFamily:"'Nunito',sans-serif",fontSize:16,fontWeight:700,color:C.text}}>Sin operaciones cerradas</div>
+          <div style={{fontSize:12,color:C.textMuted,textAlign:"center",lineHeight:1.6}}>
+            Usá el botón <strong style={{color:"#a78bfa"}}>✓ Cerrar</strong> en Operaciones Activas para mover trades aquí.
+          </div>
+        </div>
+      )}
+
+      {/* Table */}
+      {rows.length > 0 && (
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",minWidth:1100}}>
+            <thead>
+              <tr>
+                <th style={{...thSt,width:80}}>Activo</th>
+                <th style={{...thSt,width:70,textAlign:"right"}}>Cant.</th>
+                <th style={{...thSt,width:110}}>F. Compra</th>
+                <th style={{...thSt,width:120,textAlign:"right",color:C.green}}>P. Compra ARS</th>
+                <th style={{...thSt,width:120,textAlign:"right",color:C.green}}>MEP Prom. Compra</th>
+                <th style={{...thSt,width:110,textAlign:"right",color:C.green}}>P. en USD</th>
+                <th style={{...thSt,width:120,textAlign:"right",color:COLOR}}>P. Cierre ARS</th>
+                <th style={{...thSt,width:110}}>F. Cierre</th>
+                <th style={{...thSt,width:90,textAlign:"right"}}>P/L % ARS</th>
+                <th style={{...thSt,width:80,textAlign:"right"}}>Días</th>
+                <th style={{...thSt,width:40}}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(row => {
+                const { precioCompraUSD, plPctARS, diasTenencia } = calcHistoric(row);
+                return (
+                  <tr key={row.id}
+                    onMouseEnter={e=>e.currentTarget.style.background=C.cardHover}
+                    onMouseLeave={e=>e.currentTarget.style.background="transparent"}
+                    style={{transition:"background 0.12s"}}
+                  >
+                    <td style={tdSt}>
+                      <input value={row.activo||""} onChange={e=>updateRow(row.id,"activo",e.target.value.toUpperCase())}
+                        placeholder="—" style={{...inpSt,fontWeight:700,color:COLOR,letterSpacing:"0.05em",width:68}}
+                        onFocus={e=>e.target.style.background=`${COLOR}12`}
+                        onBlur={e=>e.target.style.background="transparent"}
+                      />
+                    </td>
+                    <td style={{...tdSt,textAlign:"right"}}>
+                      <input value={row.cant||""} onChange={e=>updateRow(row.id,"cant",e.target.value)}
+                        placeholder="0" type="text" inputMode="decimal"
+                        style={{...inpSt,textAlign:"right",width:60}}
+                        onFocus={e=>e.target.style.background=C.surface}
+                        onBlur={e=>e.target.style.background="transparent"}
+                      />
+                    </td>
+                    <td style={tdSt}>
+                      <input value={row.fechaCompra||""} onChange={e=>updateRow(row.id,"fechaCompra",e.target.value)}
+                        placeholder="dd/mm/aa" style={{...inpSt,width:90}}
+                        onFocus={e=>e.target.style.background=C.surface}
+                        onBlur={e=>e.target.style.background="transparent"}
+                      />
+                    </td>
+                    <td style={{...tdSt,textAlign:"right",background:`${C.green}06`}}>
+                      <input value={row.precioCompraARS||""} onChange={e=>updateRow(row.id,"precioCompraARS",e.target.value)}
+                        placeholder="0.00" type="text" inputMode="decimal"
+                        style={{...inpSt,textAlign:"right",width:90}}
+                        onFocus={e=>e.target.style.background=`${C.green}12`}
+                        onBlur={e=>e.target.style.background="transparent"}
+                      />
+                    </td>
+                    <td style={{...tdSt,textAlign:"right",background:`${C.green}06`}}>
+                      <input value={row.mepPromedioCompra||""} onChange={e=>updateRow(row.id,"mepPromedioCompra",e.target.value)}
+                        placeholder="0.00" type="text" inputMode="decimal"
+                        style={{...inpSt,textAlign:"right",width:90}}
+                        onFocus={e=>e.target.style.background=`${C.green}12`}
+                        onBlur={e=>e.target.style.background="transparent"}
+                      />
+                    </td>
+                    <td style={{...tdSt,textAlign:"right",background:`${C.green}06`}}>
+                      <span style={{fontFamily:"'DM Mono',monospace",fontSize:12,color:C.textSub,fontStyle:"italic"}}>
+                        {precioCompraUSD !== null ? `USD ${fmt(precioCompraUSD,2)}` : "—"}
+                      </span>
+                    </td>
+                    <td style={{...tdSt,textAlign:"right",background:`${COLOR}06`}}>
+                      <input value={row.precioActualARS||""} onChange={e=>updateRow(row.id,"precioActualARS",e.target.value)}
+                        placeholder="0.00" type="text" inputMode="decimal"
+                        style={{...inpSt,textAlign:"right",width:90}}
+                        onFocus={e=>e.target.style.background=`${COLOR}12`}
+                        onBlur={e=>e.target.style.background="transparent"}
+                      />
+                    </td>
+                    <td style={tdSt}>
+                      <input value={row.fechaCierre||""} onChange={e=>updateRow(row.id,"fechaCierre",e.target.value)}
+                        placeholder="dd/mm/aa" style={{...inpSt,width:90}}
+                        onFocus={e=>e.target.style.background=C.surface}
+                        onBlur={e=>e.target.style.background="transparent"}
+                      />
+                    </td>
+                    <td style={{...tdSt,textAlign:"right"}}>
+                      <PnLBadge val={plPctARS}/>
+                    </td>
+                    <td style={{...tdSt,textAlign:"right",fontFamily:"'DM Mono',monospace",color:C.textSub,fontSize:12}}>
+                      {diasTenencia !== null ? diasTenencia : "—"}
+                    </td>
+                    <td style={{...tdSt,textAlign:"center"}}>
+                      <button onClick={()=>removeRow(row.id)} style={{
+                        background:"transparent",border:"none",color:C.textMuted,
+                        cursor:"pointer",fontSize:16,padding:"2px 6px",lineHeight:1,
+                        borderRadius:6,transition:"all 0.18s",
+                      }}
+                        onMouseEnter={e=>{e.currentTarget.style.color=C.red;e.currentTarget.style.background=C.redBg;}}
+                        onMouseLeave={e=>{e.currentTarget.style.color=C.textMuted;e.currentTarget.style.background="transparent";}}
+                      >×</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Trading Tab ───────────────────────────────────────────────────────────────
 // Three sections: Portfolio · Active Trades · Historic Trades
 // Storage keys:
@@ -2586,7 +3148,9 @@ function TradingView() {
 
         {/* Section body */}
         {section === "portfolio" && <TradingPortfolioTable />}
-        {section !== "portfolio" && (
+        {section === "active"   && <TradingActiveTable />}
+        {section === "historic" && <TradingHistoricTable />}
+        {section !== "portfolio" && section !== "active" && section !== "historic" && (
           <div style={{
             display: "flex", flexDirection: "column",
             alignItems: "center", justifyContent: "center",
