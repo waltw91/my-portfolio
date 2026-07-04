@@ -32,9 +32,12 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, LineChart, Line, XAx
 //       "P/L % USD" (usa MEP Cierre, capturado del MEP Hoy al cerrar el trade)
 // v2.19 Trading: "Días" en Histórico ahora es un valor estático capturado al
 //       cerrar el trade (ya no se recalcula contra la fecha actual)
+// v2.20 Trading — Portafolio Actual: botones de orden (Monto/Tipo/%, asc-desc),
+//       columna "Strategy", "%" ahora se calcula automáticamente sobre el
+//       total del portafolio, y el donut chart usa ese % en vez del monto
 // ─────────────────────────────────────────────────────────────────────────────
-const APP_VERSION = "2.19";
-const APP_BUILD   = new Date("2026-07-03").toISOString().slice(0,10);
+const APP_VERSION = "2.20";
+const APP_BUILD   = new Date("2026-07-04").toISOString().slice(0,10);
 
 
 const FONTS = `
@@ -2219,13 +2222,14 @@ function emptyTradingActiveRow() {
 function emptyTradingPortfolioRow() {
   return {
     id: `tp${Date.now()}${Math.floor(Math.random()*1000)}`,
-    ticker: "", name: "", market: "", beta: "", sector: "", type: "", amount: "", percent: "", target: "",
+    ticker: "", name: "", market: "", beta: "", sector: "", type: "", strategy: "", amount: "", percent: "", target: "",
   };
 }
 
 // Market options
 const TRADING_MARKETS  = ["US","AR","BR","INTL","OTHER"];
 const TRADING_TYPES    = ["Core ETF","Defensive","Dividend","Trade","Other"];
+const TRADING_STRATEGIES = ["Growth","Value","Income","Momentum","Swing","Core","Hedge","Speculative","Other"];
 const TRADING_SECTORS  = [
   "Cons. Staples", "Cons. Discretionary", "Healthcare","Energy","IT","Financials",
   "Comm. Services","Industrials","Materials","Real Estate","Utilities","Intl. Dev. Markets","S%P 500 Index","—"
@@ -2239,6 +2243,9 @@ function TradingPortfolioTable() {
     const saved = loadTrading("portfolio");
     return saved.length ? saved : [emptyTradingPortfolioRow()];
   });
+  // Sort state — display-only, does not mutate the underlying stored row order
+  const [sortField, setSortField] = React.useState(null); // "amount" | "type" | "percent"
+  const [sortDir, setSortDir]     = React.useState("desc"); // "asc" | "desc"
 
   // Auto-save on every change
   React.useEffect(() => { saveTrading("portfolio", rows); }, [rows]);
@@ -2269,8 +2276,45 @@ function TradingPortfolioTable() {
   };
 
   // Totals
-  const totalAmount  = rows.reduce((s, r) => s + (parseFloat(r.amount)  || 0), 0);
-  const totalPercent = rows.reduce((s, r) => s + (parseFloat(r.percent) || 0), 0);
+  const totalAmount = rows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+
+  // % de cada posición sobre el total del portafolio — SIEMPRE calculado
+  // automáticamente a partir de "Monto", nunca cargado a mano.
+  function pctOf(row) {
+    const amt = parseFloat(row.amount) || 0;
+    return totalAmount > 0 ? (amt / totalAmount) * 100 : 0;
+  }
+  const totalPercent = rows.reduce((s, r) => s + pctOf(r), 0); // ≈100 si hay algún monto cargado
+
+  // Filas ordenadas para mostrar (no reordena lo guardado en localStorage)
+  const displayRows = React.useMemo(() => {
+    if (!sortField) return rows;
+    const dir = sortDir === "asc" ? 1 : -1;
+    return [...rows].sort((a, b) => {
+      let av, bv;
+      if (sortField === "amount")       { av = parseFloat(a.amount) || 0; bv = parseFloat(b.amount) || 0; }
+      else if (sortField === "percent") { av = pctOf(a);                  bv = pctOf(b); }
+      else if (sortField === "type")    { av = (a.type || "").toLowerCase(); bv = (b.type || "").toLowerCase(); }
+      if (av < bv) return -1 * dir;
+      if (av > bv) return  1 * dir;
+      return 0;
+    });
+  }, [rows, sortField, sortDir, totalAmount]);
+
+  function toggleSort(field, defaultDir) {
+    if (sortField === field) {
+      setSortDir(d => d === "asc" ? "desc" : "asc");
+    } else {
+      setSortField(field);
+      setSortDir(defaultDir);
+    }
+  }
+
+  const SORT_BUTTONS = [
+    { field: "amount",  label: "Monto",  defaultDir: "desc" },
+    { field: "type",    label: "Tipo",   defaultDir: "asc"  },
+    { field: "percent", label: "%",      defaultDir: "desc" },
+  ];
 
   // Inline select helper
   function SelectCell({ id, field, value, options }) {
@@ -2289,7 +2333,7 @@ function TradingPortfolioTable() {
   return (
     <div>
       {/* Toolbar */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 20px", borderBottom: `1px solid ${C.border}` }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 20px", borderBottom: `1px solid ${C.border}`, flexWrap: "wrap", gap: 10 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {rows.filter(r => r.ticker).length > 0 && (
             <span style={{
@@ -2309,9 +2353,45 @@ function TradingPortfolioTable() {
         >+ Agregar posición</button>
       </div>
 
+      {/* Sort toolbar */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 20px", borderBottom: `1px solid ${C.border}`, background: C.surface, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", fontFamily: "'DM Mono',monospace" }}>
+          Ordenar por
+        </span>
+        {SORT_BUTTONS.map(({ field, label, defaultDir }) => {
+          const isActive = sortField === field;
+          const arrow = isActive ? (sortDir === "asc" ? "↑" : "↓") : "↕";
+          return (
+            <button key={field} onClick={() => toggleSort(field, defaultDir)} style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "7px 14px", minHeight: 32,
+              background: isActive ? `${COLOR}18` : C.card,
+              border: `1px solid ${isActive ? COLOR + "60" : C.border}`,
+              borderRadius: 8, cursor: "pointer",
+              fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: isActive ? 600 : 400,
+              color: isActive ? COLOR : C.textSub,
+              transition: "all 0.2s",
+            }}
+              onMouseEnter={e => { if (!isActive) { e.currentTarget.style.borderColor = COLOR + "40"; e.currentTarget.style.color = COLOR; } }}
+              onMouseLeave={e => { if (!isActive) { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.textSub; } }}
+            >
+              {label}
+              <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 12 }}>{arrow}</span>
+            </button>
+          );
+        })}
+        {sortField && (
+          <button onClick={() => setSortField(null)} style={{
+            background: "transparent", border: "none", color: C.textMuted,
+            fontFamily: "'DM Sans',sans-serif", fontSize: 11, cursor: "pointer",
+            padding: "6px 8px", textDecoration: "underline", textUnderlineOffset: 2,
+          }}>Limpiar orden</button>
+        )}
+      </div>
+
       {/* Table */}
       <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 980 }}>
           <thead>
             <tr>
               <th style={{ ...thSt, width: 80  }}>Ticker</th>
@@ -2320,19 +2400,20 @@ function TradingPortfolioTable() {
               <th style={{ ...thSt, width: 70, textAlign: "right" }}>Beta</th>
               <th style={{ ...thSt, width: 150 }}>Sector</th>
               <th style={{ ...thSt, width: 100 }}>Tipo</th>
+              <th style={{ ...thSt, width: 100 }}>Strategy</th>
               <th style={{ ...thSt, width: 110, textAlign: "right" }}>Monto</th>
-              <th style={{ ...thSt, width: 90,  textAlign: "right" }}>%</th>
+              <th style={{ ...thSt, width: 90,  textAlign: "right" }} title="Calculado automáticamente sobre el total del portafolio">%</th>
               <th style={{ ...thSt, width: 90,  textAlign: "right" }}>Target</th>
               <th style={{ ...thSt, width: 40  }}></th>
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 && (
-              <tr><td colSpan={10} style={{ ...tdSt, textAlign: "center", color: C.textMuted, padding: 36 }}>
+            {displayRows.length === 0 && (
+              <tr><td colSpan={11} style={{ ...tdSt, textAlign: "center", color: C.textMuted, padding: 36 }}>
                 Sin posiciones. Hacé clic en &quot;+ Agregar posición&quot;.
               </td></tr>
             )}
-            {rows.map(row => (
+            {displayRows.map(row => (
               <tr key={row.id}
                 onMouseEnter={e => e.currentTarget.style.background = C.cardHover}
                 onMouseLeave={e => e.currentTarget.style.background = "transparent"}
@@ -2375,6 +2456,10 @@ function TradingPortfolioTable() {
                 <td style={tdSt}>
                   <SelectCell id={row.id} field="type" value={row.type} options={TRADING_TYPES}/>
                 </td>
+                {/* Strategy */}
+                <td style={tdSt}>
+                  <SelectCell id={row.id} field="strategy" value={row.strategy} options={TRADING_STRATEGIES}/>
+                </td>
                 {/* Amount */}
                 <td style={{ ...tdSt, textAlign: "right" }}>
                   <input value={row.amount} onChange={e => updateRow(row.id, "amount", e.target.value)}
@@ -2384,14 +2469,11 @@ function TradingPortfolioTable() {
                     onBlur={e  => e.target.style.background = "transparent"}
                   />
                 </td>
-                {/* Percent */}
-                <td style={{ ...tdSt, textAlign: "right" }}>
-                  <input value={row.percent} onChange={e => updateRow(row.id, "percent", e.target.value)}
-                    placeholder="0%" type="text" inputMode="decimal"
-                    style={{ ...inpSt, textAlign: "right", width: 60 }}
-                    onFocus={e => e.target.style.background = C.surface}
-                    onBlur={e  => e.target.style.background = "transparent"}
-                  />
+                {/* Percent — computed, read-only */}
+                <td style={{ ...tdSt, textAlign: "right", background: `${COLOR}06` }}>
+                  <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 12, color: C.textSub, fontStyle: "italic" }}>
+                    {row.amount ? `${fmt(pctOf(row), 1)}%` : "—"}
+                  </span>
                 </td>
                 {/* Target */}
                 <td style={{ ...tdSt, textAlign: "right" }}>
@@ -2417,16 +2499,16 @@ function TradingPortfolioTable() {
             ))}
           </tbody>
           {/* Totals footer */}
-          {rows.some(r => r.amount || r.percent) && (
+          {rows.some(r => r.amount) && (
             <tfoot>
               <tr style={{ background: `${COLOR}0c` }}>
-                <td colSpan={6} style={{ padding: "10px 12px", borderTop: `2px solid ${COLOR}40`, fontFamily: "'DM Sans',sans-serif", fontWeight: 700, fontSize: 12, color: COLOR }}>
+                <td colSpan={7} style={{ padding: "10px 12px", borderTop: `2px solid ${COLOR}40`, fontFamily: "'DM Sans',sans-serif", fontWeight: 700, fontSize: 12, color: COLOR }}>
                   Totales
                 </td>
                 <td style={{ padding: "10px 12px", borderTop: `2px solid ${COLOR}40`, textAlign: "right", fontFamily: "'DM Mono',monospace", fontSize: 12, fontWeight: 700, color: C.text }}>
                   {totalAmount > 0 ? fmt(totalAmount) : "—"}
                 </td>
-                <td style={{ padding: "10px 12px", borderTop: `2px solid ${COLOR}40`, textAlign: "right", fontFamily: "'DM Mono',monospace", fontSize: 12, fontWeight: 700, color: totalPercent > 100 ? C.red : totalPercent === 100 ? C.green : C.amber }}>
+                <td style={{ padding: "10px 12px", borderTop: `2px solid ${COLOR}40`, textAlign: "right", fontFamily: "'DM Mono',monospace", fontSize: 12, fontWeight: 700, color: Math.round(totalPercent) === 100 ? C.green : C.amber }}>
                   {totalPercent > 0 ? fmt(totalPercent, 1) + "%" : "—"}
                 </td>
                 <td colSpan={2} style={{ borderTop: `2px solid ${COLOR}40` }} />
@@ -2436,13 +2518,9 @@ function TradingPortfolioTable() {
         </table>
       </div>
 
-      {/* Pie chart — shown when there is at least one row with amount or percent */}
+      {/* Pie chart — % de cada ticker sobre el total del portafolio */}
       {(() => {
-        // Build chart data — prefer % column, fall back to amount
-        const byPercent = rows.filter(r => r.ticker && parseFloat(r.percent) > 0);
-        const byAmount  = rows.filter(r => r.ticker && parseFloat(r.amount)  > 0);
-        const usePercent = byPercent.length > 0;
-        const chartRows = usePercent ? byPercent : byAmount;
+        const chartRows = rows.filter(r => r.ticker && parseFloat(r.amount) > 0);
         if (chartRows.length < 1) return null;
 
         const CHART_COLORS = [
@@ -2454,7 +2532,7 @@ function TradingPortfolioTable() {
         const chartData = chartRows.map(r => ({
           name:  r.ticker,
           label: r.name || r.ticker,
-          value: parseFloat(usePercent ? r.percent : r.amount) || 0,
+          value: pctOf(r), // % del portafolio total (no el monto en $)
         }));
         const total = chartData.reduce((s, d) => s + d.value, 0);
 
@@ -2482,7 +2560,7 @@ function TradingPortfolioTable() {
                   </Pie>
                   <Tooltip
                     contentStyle={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, fontFamily: "'DM Mono',monospace", fontSize: 11 }}
-                    formatter={(v, n) => [`${fmt(v, 1)}${usePercent ? "%" : ""}`, n]}
+                    formatter={(v, n) => [`${fmt(v, 1)}%`, n]}
                   />
                 </PieChart>
               </ResponsiveContainer>
@@ -2495,7 +2573,7 @@ function TradingPortfolioTable() {
             {/* Legend */}
             <div>
               <div style={{ color: C.textMuted, fontSize: 10, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 }}>
-                Distribución {usePercent ? "(% asignado)" : "(por monto)"}
+                Distribución (% del portafolio)
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
                 {chartData.map((d, i) => {
@@ -2510,7 +2588,7 @@ function TradingPortfolioTable() {
                         <div style={{ width: `${pct}%`, height: "100%", background: col, borderRadius: 99 }} />
                       </div>
                       <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11, color: C.text, width: 48, textAlign: "right", flexShrink: 0 }}>
-                        {fmt(d.value, 1)}{usePercent ? "%" : ""}
+                        {fmt(d.value, 1)}%
                       </span>
                     </div>
                   );
