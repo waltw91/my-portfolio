@@ -35,8 +35,12 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, LineChart, Line, XAx
 // v2.20 Trading — Portafolio Actual: botones de orden (Monto/Tipo/%, asc-desc),
 //       columna "Strategy", "%" ahora se calcula automáticamente sobre el
 //       total del portafolio, y el donut chart usa ese % en vez del monto
+// v2.21 Trading — Portafolio Actual: donut chart ordenado por % (menor a mayor),
+//       "Strategy" ahora es texto libre, autocompletado de "Empresa" según
+//       ticker (mismo lookup que CEDEARs), y color-coding en Mercado/Beta
+//       (1.00 como punto medio)/Sector/Tipo
 // ─────────────────────────────────────────────────────────────────────────────
-const APP_VERSION = "2.20";
+const APP_VERSION = "2.21";
 const APP_BUILD   = new Date("2026-07-04").toISOString().slice(0,10);
 
 
@@ -2229,11 +2233,47 @@ function emptyTradingPortfolioRow() {
 // Market options
 const TRADING_MARKETS  = ["US","AR","BR","INTL","OTHER"];
 const TRADING_TYPES    = ["Core ETF","Defensive","Dividend","Trade","Other"];
+// Reservado para cuando "Strategy" vuelva a ser una lista desplegable (por ahora es texto libre)
 const TRADING_STRATEGIES = ["Growth","Value","Income","Momentum","Swing","Core","Hedge","Speculative","Other"];
 const TRADING_SECTORS  = [
   "Cons. Staples", "Cons. Discretionary", "Healthcare","Energy","IT","Financials",
   "Comm. Services","Industrials","Materials","Real Estate","Utilities","Intl. Dev. Markets","S%P 500 Index","—"
 ];
+
+// ── Trading — Portafolio Actual: color coding ────────────────────────────────
+const MARKET_COLORS = {
+  US:    "#60a5fa", // azul — mercado estadounidense
+  AR:    "#38bdf8", // celeste — mismo tono que Merval/Argentina en el resto de la app
+  BR:    "#4ade80", // verde — Brasil
+  INTL:  "#a78bfa", // violeta — internacional / desarrollados
+  OTHER: "#9ca3af", // gris neutro
+};
+function colorForMarket(market) { return MARKET_COLORS[market] || C.textMuted; }
+
+// Beta: 1.00 es el punto medio (misma volatilidad que el mercado). Por debajo
+// es defensivo (verde), por encima es más volátil (ámbar → rojo cuanto más alto).
+function colorForBeta(betaStr) {
+  const b = parseFloat(betaStr);
+  if (isNaN(b)) return C.textMuted;
+  if (b < 0.85) return C.green;
+  if (b <= 1.15) return C.textSub;   // ~1.00 — neutro, en línea con el mercado
+  if (b <= 1.5)  return C.amber;
+  return C.red;
+}
+
+// Paleta cíclica reutilizada del donut chart, para que Sector y el gráfico compartan colores
+const SECTOR_PALETTE = ["#06b6d4","#f59e0b","#a78bfa","#34d399","#f87171","#60a5fa","#fb923c","#e879f9","#4ade80","#facc15","#38bdf8","#c084fc","#fca5a5","#93c5fd"];
+const SECTOR_COLORS = Object.fromEntries(TRADING_SECTORS.map((s, i) => [s, SECTOR_PALETTE[i % SECTOR_PALETTE.length]]));
+function colorForSector(sector) { return sector ? (SECTOR_COLORS[sector] || C.textMuted) : C.textMuted; }
+
+const TYPE_COLORS = {
+  "Core ETF":  "#06b6d4", // cian — el color de la sección, para el "core" de la cartera
+  "Defensive": "#34d399", // verde — bajo riesgo
+  "Dividend":  "#f59e0b", // ámbar/dorado — income
+  "Trade":     "#fb923c", // naranja — posiciones activas / mayor rotación
+  "Other":     "#9ca3af", // gris neutro
+};
+function colorForType(type) { return type ? (TYPE_COLORS[type] || C.textMuted) : C.textMuted; }
 
 
 // ── Trading: Portafolio Actual table ─────────────────────────────────────────
@@ -2246,12 +2286,25 @@ function TradingPortfolioTable() {
   // Sort state — display-only, does not mutate the underlying stored row order
   const [sortField, setSortField] = React.useState(null); // "amount" | "type" | "percent"
   const [sortDir, setSortDir]     = React.useState("desc"); // "asc" | "desc"
+  const nameTimers = React.useRef({}); // debounce per-row, mismo patrón que la sección CEDEARs
 
   // Auto-save on every change
   React.useEffect(() => { saveTrading("portfolio", rows); }, [rows]);
 
+  // Autocompletar "Empresa" a partir del ticker — mismo lookup y misma lógica
+  // de debounce (500ms) que se usa en la sección CEDEARs.
+  function resolveTickerName(id, ticker) {
+    if (!ticker || ticker.length < 1) return;
+    const name = CEDEAR_NAMES[ticker.toUpperCase()] || null;
+    if (name) setRows(prev => prev.map(r => (r.id === id && !r.name) ? { ...r, name } : r));
+  }
+
   function updateRow(id, field, value) {
     setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
+    if (field === "ticker") {
+      clearTimeout(nameTimers.current[id]);
+      nameTimers.current[id] = setTimeout(() => resolveTickerName(id, value), 500);
+    }
   }
   function addRow() { setRows(prev => [...prev, emptyTradingPortfolioRow()]); }
   function removeRow(id) { setRows(prev => prev.filter(r => r.id !== id)); }
@@ -2316,17 +2369,21 @@ function TradingPortfolioTable() {
     { field: "percent", label: "%",      defaultDir: "desc" },
   ];
 
-  // Inline select helper
-  function SelectCell({ id, field, value, options }) {
+  // Inline select helper — colorFn(value) opcionalmente pinta un punto + el texto
+  function SelectCell({ id, field, value, options, colorFn }) {
+    const col = colorFn ? colorFn(value) : null;
     return (
-      <select value={value} onChange={e => updateRow(id, field, e.target.value)}
-        style={{ ...inpSt, cursor: "pointer", appearance: "none", WebkitAppearance: "none" }}
-        onFocus={e => e.target.style.background = `${COLOR}12`}
-        onBlur={e  => e.target.style.background = "transparent"}
-      >
-        <option value="">—</option>
-        {options.map(o => <option key={o} value={o}>{o}</option>)}
-      </select>
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        {colorFn && <span style={{ width: 8, height: 8, borderRadius: 2, background: col, flexShrink: 0 }} />}
+        <select value={value} onChange={e => updateRow(id, field, e.target.value)}
+          style={{ ...inpSt, cursor: "pointer", appearance: "none", WebkitAppearance: "none", color: col || C.text }}
+          onFocus={e => e.target.style.background = `${COLOR}12`}
+          onBlur={e  => e.target.style.background = "transparent"}
+        >
+          <option value="">—</option>
+          {options.map(o => <option key={o} value={o} style={{ color: C.text, background: C.card }}>{o}</option>)}
+        </select>
+      </div>
     );
   }
 
@@ -2437,28 +2494,32 @@ function TradingPortfolioTable() {
                 </td>
                 {/* Market */}
                 <td style={tdSt}>
-                  <SelectCell id={row.id} field="market" value={row.market} options={TRADING_MARKETS}/>
+                  <SelectCell id={row.id} field="market" value={row.market} options={TRADING_MARKETS} colorFn={colorForMarket}/>
                 </td>
-                {/* Beta */}
+                {/* Beta — coloreado con 1.00 como punto medio (verde defensivo, ámbar/rojo más volátil) */}
                 <td style={{ ...tdSt, textAlign: "right" }}>
                   <input value={row.beta} onChange={e => updateRow(row.id, "beta", e.target.value)}
                     placeholder="0.00" type="text" inputMode="decimal"
-                    style={{ ...inpSt, textAlign: "right", width: 56 }}
+                    style={{ ...inpSt, textAlign: "right", width: 56, color: colorForBeta(row.beta), fontWeight: row.beta ? 600 : 400 }}
                     onFocus={e => e.target.style.background = C.surface}
                     onBlur={e  => e.target.style.background = "transparent"}
                   />
                 </td>
                 {/* Sector */}
                 <td style={tdSt}>
-                  <SelectCell id={row.id} field="sector" value={row.sector} options={TRADING_SECTORS}/>
+                  <SelectCell id={row.id} field="sector" value={row.sector} options={TRADING_SECTORS} colorFn={colorForSector}/>
                 </td>
                 {/* Type */}
                 <td style={tdSt}>
-                  <SelectCell id={row.id} field="type" value={row.type} options={TRADING_TYPES}/>
+                  <SelectCell id={row.id} field="type" value={row.type} options={TRADING_TYPES} colorFn={colorForType}/>
                 </td>
-                {/* Strategy */}
+                {/* Strategy — texto libre por ahora (podrá pasar a lista desplegable más adelante) */}
                 <td style={tdSt}>
-                  <SelectCell id={row.id} field="strategy" value={row.strategy} options={TRADING_STRATEGIES}/>
+                  <input value={row.strategy} onChange={e => updateRow(row.id, "strategy", e.target.value)}
+                    placeholder="Ej: Growth…" style={{ ...inpSt, color: C.textSub }}
+                    onFocus={e => e.target.style.background = C.surface}
+                    onBlur={e  => e.target.style.background = "transparent"}
+                  />
                 </td>
                 {/* Amount */}
                 <td style={{ ...tdSt, textAlign: "right" }}>
@@ -2529,11 +2590,13 @@ function TradingPortfolioTable() {
           "#38bdf8","#c084fc",
         ];
 
-        const chartData = chartRows.map(r => ({
-          name:  r.ticker,
-          label: r.name || r.ticker,
-          value: pctOf(r), // % del portafolio total (no el monto en $)
-        }));
+        const chartData = chartRows
+          .map(r => ({
+            name:  r.ticker,
+            label: r.name || r.ticker,
+            value: pctOf(r), // % del portafolio total (no el monto en $)
+          }))
+          .sort((a, b) => a.value - b.value); // menor a mayor, según lo pedido
         const total = chartData.reduce((s, d) => s + d.value, 0);
 
         return (
