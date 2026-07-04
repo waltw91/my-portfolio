@@ -26,9 +26,15 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, LineChart, Line, XAx
 // v2.14 Trading: pie chart added to Portafolio Actual (uses % or amount)
 // v2.15 Trading: Operaciones Activas table with all columns + auto-calculations
 // v2.16 Trading: Histórico de Trades table + Cerrar button transfers trade to historic
+// v2.17 Trading: Portafolio Actual / Operaciones Activas / Histórico siempre visibles
+//       y apiladas (con navegación rápida por scroll) en vez de tabs exclusivos
+// v2.18 Trading: Histórico de Trades — agregadas columnas "P. Cierre USD" y
+//       "P/L % USD" (usa MEP Cierre, capturado del MEP Hoy al cerrar el trade)
+// v2.19 Trading: "Días" en Histórico ahora es un valor estático capturado al
+//       cerrar el trade (ya no se recalcula contra la fecha actual)
 // ─────────────────────────────────────────────────────────────────────────────
-const APP_VERSION = "2.16";
-const APP_BUILD   = new Date("2026-05-23").toISOString().slice(0,10);
+const APP_VERSION = "2.19";
+const APP_BUILD   = new Date("2026-07-03").toISOString().slice(0,10);
 
 
 const FONTS = `
@@ -2184,16 +2190,20 @@ function loadTrading(key) {
 function saveTrading(key, data) {
   try { localStorage.setItem(`trading:${key}`, JSON.stringify(data)); } catch {}
 }
-function emptyTradingHistoricRow(base) {
+function emptyTradingHistoricRow(base, extra) {
   return {
     id: `th${Date.now()}${Math.floor(Math.random()*1000)}`,
-    activo:          base?.activo          || "",
-    cant:            base?.cant            || "",
-    fechaCompra:     base?.fechaCompra     || "",
-    precioCompraARS: base?.precioCompraARS || "",
+    activo:            base?.activo            || "",
+    cant:              base?.cant              || "",
+    fechaCompra:       base?.fechaCompra       || "",
+    precioCompraARS:   base?.precioCompraARS   || "",
     mepPromedioCompra: base?.mepPromedioCompra || "",
-    precioActualARS: base?.precioActualARS || "",
-    fechaCierre:     base?.fechaCierre     || new Date().toLocaleDateString("es-AR",{day:"2-digit",month:"2-digit",year:"2-digit"}).replace(/\//g,"/"),
+    precioActualARS:   base?.precioActualARS   || "", // P. Cierre ARS
+    mepCierre:         extra?.mepCierre ?? base?.mepCierre ?? "",
+    fechaCierre:       base?.fechaCierre        || new Date().toLocaleDateString("es-AR",{day:"2-digit",month:"2-digit",year:"2-digit"}).replace(/\//g,"/"),
+    // Días de tenencia: capturado UNA VEZ al cerrar el trade. Valor estático de
+    // referencia — no se recalcula contra la fecha actual en ningún render.
+    dias:              extra?.dias ?? base?.dias ?? "",
   };
 }
 
@@ -2214,11 +2224,11 @@ function emptyTradingPortfolioRow() {
 }
 
 // Market options
-const TRADING_MARKETS  = ["BYMA","NYSE","NASDAQ","MERVAL","CRYPTO","OTHER"];
-const TRADING_TYPES    = ["Acción","ETF","Bono","Crypto","CEDEARs","Otro"];
+const TRADING_MARKETS  = ["US","AR","BR","INTL","OTHER"];
+const TRADING_TYPES    = ["Core ETF","Defensive","Dividend","Trade","Other"];
 const TRADING_SECTORS  = [
-  "Consumer Staples","Healthcare","Energy","Technology","Financials",
-  "Telecom","Industrials","Materials","Real Estate","Utilities","Crypto","—"
+  "Cons. Staples", "Cons. Discretionary", "Healthcare","Energy","IT","Financials",
+  "Comm. Services","Industrials","Materials","Real Estate","Utilities","Intl. Dev. Markets","S%P 500 Index","—"
 ];
 
 
@@ -2537,9 +2547,14 @@ function TradingActiveTable() {
   function addRow() { setRows(prev => [...prev, emptyTradingActiveRow()]); }
   function removeRow(id) { setRows(prev => prev.filter(r => r.id !== id)); }
   function closeToHistoric(row) {
-    // Add to historic
+    // Snapshot días de tenencia and MEP hoy at the moment of closing — these
+    // become static reference values in the historic row (see emptyTradingHistoricRow).
+    const { diasTenencia } = calc(row);
     const historic = loadTrading("historic");
-    const closed = emptyTradingHistoricRow(row);
+    const closed = emptyTradingHistoricRow(row, {
+      mepCierre: mepHoy,
+      dias: diasTenencia !== null ? diasTenencia : "",
+    });
     saveTrading("historic", [closed, ...historic]);
     // Remove from active
     setRows(prev => prev.filter(r => r.id !== row.id));
@@ -2842,27 +2857,20 @@ function TradingHistoricTable() {
     const pCompraARS  = parseFloat(row.precioCompraARS)   || 0;
     const mepCompra   = parseFloat(row.mepPromedioCompra) || 0;
     const pCierreARS  = parseFloat(row.precioActualARS)   || 0;
+    const mepCierre   = parseFloat(row.mepCierre)         || 0;
 
-    const precioCompraUSD  = mepCompra > 0 ? pCompraARS / mepCompra : null;
+    const precioCompraUSD = mepCompra > 0 ? pCompraARS / mepCompra : null;
+    const precioCierreUSD = (pCierreARS > 0 && mepCierre > 0) ? pCierreARS / mepCierre : null;
+
     const plPctARS = (pCompraARS > 0 && pCierreARS > 0)
       ? ((pCierreARS - pCompraARS) / pCompraARS) * 100 : null;
 
-    let diasTenencia = null;
-    if (row.fechaCompra && row.fechaCierre) {
-      function parseDate(str) {
-        const p = str.split("/");
-        if (p.length === 3) {
-          const y = p[2].length === 2 ? "20" + p[2] : p[2];
-          const d = new Date(`${y}-${p[1].padStart(2,"0")}-${p[0].padStart(2,"0")}`);
-          return isNaN(d) ? null : d;
-        }
-        return null;
-      }
-      const d1 = parseDate(row.fechaCompra);
-      const d2 = parseDate(row.fechaCierre);
-      if (d1 && d2) diasTenencia = Math.floor((d2 - d1) / 86400000);
-    }
-    return { precioCompraUSD, plPctARS, diasTenencia };
+    const plPctUSD = (precioCompraUSD !== null && precioCierreUSD !== null && precioCompraUSD > 0)
+      ? ((precioCierreUSD - precioCompraUSD) / precioCompraUSD) * 100 : null;
+
+    // NOTE: "Días" is intentionally NOT computed here. It's a static value
+    // captured once at close time and stored on row.dias — see emptyTradingHistoricRow.
+    return { precioCompraUSD, precioCierreUSD, plPctARS, plPctUSD };
   }
 
   const inpSt = {
@@ -2952,15 +2960,18 @@ function TradingHistoricTable() {
                 <th style={{...thSt,width:120,textAlign:"right",color:C.green}}>MEP Prom. Compra</th>
                 <th style={{...thSt,width:110,textAlign:"right",color:C.green}}>P. en USD</th>
                 <th style={{...thSt,width:120,textAlign:"right",color:COLOR}}>P. Cierre ARS</th>
+                <th style={{...thSt,width:110,textAlign:"right",color:COLOR}}>MEP Cierre</th>
+                <th style={{...thSt,width:110,textAlign:"right",color:COLOR}}>P. Cierre USD</th>
                 <th style={{...thSt,width:110}}>F. Cierre</th>
                 <th style={{...thSt,width:90,textAlign:"right"}}>P/L % ARS</th>
+                <th style={{...thSt,width:90,textAlign:"right"}}>P/L % USD</th>
                 <th style={{...thSt,width:80,textAlign:"right"}}>Días</th>
                 <th style={{...thSt,width:40}}></th>
               </tr>
             </thead>
             <tbody>
               {rows.map(row => {
-                const { precioCompraUSD, plPctARS, diasTenencia } = calcHistoric(row);
+                const { precioCompraUSD, precioCierreUSD, plPctARS, plPctUSD } = calcHistoric(row);
                 return (
                   <tr key={row.id}
                     onMouseEnter={e=>e.currentTarget.style.background=C.cardHover}
@@ -3018,6 +3029,21 @@ function TradingHistoricTable() {
                         onBlur={e=>e.target.style.background="transparent"}
                       />
                     </td>
+                    {/* MEP Cierre — captured from MEP Hoy at close time, editable for manual rows */}
+                    <td style={{...tdSt,textAlign:"right",background:`${COLOR}06`}}>
+                      <input value={row.mepCierre||""} onChange={e=>updateRow(row.id,"mepCierre",e.target.value)}
+                        placeholder="0.00" type="text" inputMode="decimal"
+                        style={{...inpSt,textAlign:"right",width:90}}
+                        onFocus={e=>e.target.style.background=`${COLOR}12`}
+                        onBlur={e=>e.target.style.background="transparent"}
+                      />
+                    </td>
+                    {/* P. Cierre USD — calculated from P. Cierre ARS ÷ MEP Cierre */}
+                    <td style={{...tdSt,textAlign:"right",background:`${COLOR}06`}}>
+                      <span style={{fontFamily:"'DM Mono',monospace",fontSize:12,color:C.textSub,fontStyle:"italic"}}>
+                        {precioCierreUSD !== null ? `USD ${fmt(precioCierreUSD,2)}` : "—"}
+                      </span>
+                    </td>
                     <td style={tdSt}>
                       <input value={row.fechaCierre||""} onChange={e=>updateRow(row.id,"fechaCierre",e.target.value)}
                         placeholder="dd/mm/aa" style={{...inpSt,width:90}}
@@ -3028,8 +3054,18 @@ function TradingHistoricTable() {
                     <td style={{...tdSt,textAlign:"right"}}>
                       <PnLBadge val={plPctARS}/>
                     </td>
-                    <td style={{...tdSt,textAlign:"right",fontFamily:"'DM Mono',monospace",color:C.textSub,fontSize:12}}>
-                      {diasTenencia !== null ? diasTenencia : "—"}
+                    <td style={{...tdSt,textAlign:"right"}}>
+                      <PnLBadge val={plPctUSD}/>
+                    </td>
+                    {/* Días — static reference value captured once when the trade was closed.
+                        Editable so it can be corrected manually, but never auto-recalculated. */}
+                    <td style={{...tdSt,textAlign:"right",background:`${COLOR}06`}}>
+                      <input value={row.dias??""} onChange={e=>updateRow(row.id,"dias",e.target.value)}
+                        placeholder="—" type="text" inputMode="numeric"
+                        style={{...inpSt,textAlign:"right",width:56,fontFamily:"'DM Mono',monospace",color:C.textSub}}
+                        onFocus={e=>e.target.style.background=`${COLOR}12`}
+                        onBlur={e=>e.target.style.background="transparent"}
+                      />
                     </td>
                     <td style={{...tdSt,textAlign:"center"}}>
                       <button onClick={()=>removeRow(row.id)} style={{
@@ -3067,10 +3103,25 @@ const TRADING_SECTIONS = [
   { key: "historic",  label: "Histórico de Trades",  icon: "🗂",  color: "#a78bfa" },
 ];
 
-function TradingView() {
-  const [section, setSection] = React.useState("portfolio");
+const TRADING_SUBTITLES = {
+  portfolio: "Posiciones actuales · holdings vigentes",
+  active:    "Operaciones abiertas · trades en curso",
+  historic:  "Operaciones cerradas · historial completo",
+};
 
-  const active = TRADING_SECTIONS.find(s => s.key === section);
+const TRADING_BODIES = {
+  portfolio: TradingPortfolioTable,
+  active:    TradingActiveTable,
+  historic:  TradingHistoricTable,
+};
+
+function TradingView() {
+  // All three sections render stacked and always visible — no more exclusive tabs.
+  const sectionRefs = React.useRef({});
+
+  function scrollToSection(key) {
+    sectionRefs.current[key]?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   return (
     <div style={{ padding: "28px 28px 52px", maxWidth: 1380, margin: "0 auto" }}>
@@ -3087,91 +3138,65 @@ function TradingView() {
         </div>
       </div>
 
-      {/* Section switcher */}
+      {/* Quick-jump nav — scrolls to each section, all of which stay visible below */}
       <div style={{ display: "flex", gap: 10, marginBottom: 24, flexWrap: "wrap" }}>
-        {TRADING_SECTIONS.map(s => {
-          const isActive = section === s.key;
-          return (
-            <button key={s.key} onClick={() => setSection(s.key)} style={{
-              display: "flex", alignItems: "center", gap: 8,
-              padding: "10px 20px",
-              background: isActive ? `${s.color}18` : C.card,
-              border: `1px solid ${isActive ? s.color + "60" : C.border}`,
-              borderRadius: 10, cursor: "pointer",
-              fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: isActive ? 600 : 400,
-              color: isActive ? s.color : C.textMuted,
-              transition: "all 0.2s",
-              boxShadow: isActive ? `0 0 16px ${s.color}20` : "none",
-            }}
-              onMouseEnter={e => { if (!isActive) { e.currentTarget.style.borderColor = s.color + "40"; e.currentTarget.style.color = s.color; }}}
-              onMouseLeave={e => { if (!isActive) { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.textMuted; }}}
-            >
-              <span style={{ fontSize: 16 }}>{s.icon}</span>
-              {s.label}
-              {isActive && <div style={{ width: 6, height: 6, borderRadius: "50%", background: s.color, marginLeft: 2 }} />}
-            </button>
-          );
-        })}
+        {TRADING_SECTIONS.map(s => (
+          <button key={s.key} onClick={() => scrollToSection(s.key)} style={{
+            display: "flex", alignItems: "center", gap: 8,
+            padding: "10px 20px",
+            background: C.card,
+            border: `1px solid ${C.border}`,
+            borderRadius: 10, cursor: "pointer",
+            fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 400,
+            color: C.textMuted,
+            transition: "all 0.2s",
+          }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = s.color + "60"; e.currentTarget.style.color = s.color; e.currentTarget.style.background = `${s.color}18`; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.textMuted; e.currentTarget.style.background = C.card; }}
+          >
+            <span style={{ fontSize: 16 }}>{s.icon}</span>
+            {s.label}
+          </button>
+        ))}
       </div>
 
-      {/* Active section indicator stripe */}
-      <div style={{
-        height: 2, borderRadius: 1, marginBottom: 24,
-        background: `linear-gradient(90deg, ${active.color}, ${active.color}00)`,
-        transition: "background 0.3s",
-      }} />
-
-      {/* Section content — placeholder until next prompt */}
-      <div style={{
-        background: C.card, border: `1px solid ${active.color}28`,
-        borderRadius: 16, overflow: "hidden",
-      }}>
-        {/* Section header */}
-        <div style={{
-          padding: "16px 22px",
-          background: `linear-gradient(90deg, ${active.color}12, transparent)`,
-          borderBottom: `1px solid ${C.border}`,
-          display: "flex", alignItems: "center", gap: 12,
-        }}>
-          <span style={{ fontSize: 20 }}>{active.icon}</span>
-          <div>
-            <div style={{ fontFamily: "'Nunito',sans-serif", fontSize: 17, fontWeight: 700, color: C.text, lineHeight: 1.1 }}>
-              {active.label}
-            </div>
-            <div style={{ color: C.textMuted, fontSize: 11, marginTop: 2 }}>
-              {section === "portfolio" && "Posiciones actuales · holdings vigentes"}
-              {section === "active"    && "Operaciones abiertas · trades en curso"}
-              {section === "historic"  && "Operaciones cerradas · historial completo"}
-            </div>
-          </div>
-        </div>
-
-        {/* Section body */}
-        {section === "portfolio" && <TradingPortfolioTable />}
-        {section === "active"   && <TradingActiveTable />}
-        {section === "historic" && <TradingHistoricTable />}
-        {section !== "portfolio" && section !== "active" && section !== "historic" && (
-          <div style={{
-            display: "flex", flexDirection: "column",
-            alignItems: "center", justifyContent: "center",
-            minHeight: 320, gap: 14, padding: 40,
-          }}>
-            <div style={{ fontSize: 52 }}>{active.icon}</div>
-            <div style={{ fontFamily: "'Nunito',sans-serif", fontSize: 18, fontWeight: 700, color: C.text }}>
-              {active.label}
-            </div>
+      {/* Sections — always visible, stacked one below the other, in order */}
+      {TRADING_SECTIONS.map((s, i) => {
+        const Body = TRADING_BODIES[s.key];
+        return (
+          <div
+            key={s.key}
+            ref={el => { sectionRefs.current[s.key] = el; }}
+            style={{ scrollMarginTop: 20, marginBottom: i < TRADING_SECTIONS.length - 1 ? 32 : 0 }}
+          >
             <div style={{
-              fontSize: 13, color: C.textMuted, textAlign: "center",
-              maxWidth: 360, lineHeight: 1.7,
-              background: `${active.color}0c`,
-              border: `1px solid ${active.color}20`,
-              borderRadius: 10, padding: "14px 20px",
+              background: C.card, border: `1px solid ${s.color}28`,
+              borderRadius: 16, overflow: "hidden",
             }}>
-              Próximamente — los campos de esta sección se definirán en el siguiente prompt.
+              {/* Section header */}
+              <div style={{
+                padding: "16px 22px",
+                background: `linear-gradient(90deg, ${s.color}12, transparent)`,
+                borderBottom: `1px solid ${C.border}`,
+                display: "flex", alignItems: "center", gap: 12,
+              }}>
+                <span style={{ fontSize: 20 }}>{s.icon}</span>
+                <div>
+                  <div style={{ fontFamily: "'Nunito',sans-serif", fontSize: 17, fontWeight: 700, color: C.text, lineHeight: 1.1 }}>
+                    {s.label}
+                  </div>
+                  <div style={{ color: C.textMuted, fontSize: 11, marginTop: 2 }}>
+                    {TRADING_SUBTITLES[s.key]}
+                  </div>
+                </div>
+              </div>
+
+              {/* Section body */}
+              <Body />
             </div>
           </div>
-        )}
-      </div>
+        );
+      })}
 
     </div>
   );
