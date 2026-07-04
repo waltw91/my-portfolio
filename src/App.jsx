@@ -39,8 +39,11 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, LineChart, Line, XAx
 //       "Strategy" ahora es texto libre, autocompletado de "Empresa" según
 //       ticker (mismo lookup que CEDEARs), y color-coding en Mercado/Beta
 //       (1.00 como punto medio)/Sector/Tipo
+// v2.22 Trading — Portafolio Actual: "Ordenar por" ahora incluye Beta y Sector
+//       (se sacó "%"), y se agregó el botón "Notas" en el header (mismo
+//       componente CommentBubble que usan CEDEARs/Merval/Crypto)
 // ─────────────────────────────────────────────────────────────────────────────
-const APP_VERSION = "2.21";
+const APP_VERSION = "2.22";
 const APP_BUILD   = new Date("2026-07-04").toISOString().slice(0,10);
 
 
@@ -2345,9 +2348,10 @@ function TradingPortfolioTable() {
     const dir = sortDir === "asc" ? 1 : -1;
     return [...rows].sort((a, b) => {
       let av, bv;
-      if (sortField === "amount")       { av = parseFloat(a.amount) || 0; bv = parseFloat(b.amount) || 0; }
-      else if (sortField === "percent") { av = pctOf(a);                  bv = pctOf(b); }
-      else if (sortField === "type")    { av = (a.type || "").toLowerCase(); bv = (b.type || "").toLowerCase(); }
+      if (sortField === "amount")      { av = parseFloat(a.amount) || 0; bv = parseFloat(b.amount) || 0; }
+      else if (sortField === "beta")   { av = parseFloat(a.beta)   || 0; bv = parseFloat(b.beta)   || 0; }
+      else if (sortField === "type")   { av = (a.type   || "").toLowerCase(); bv = (b.type   || "").toLowerCase(); }
+      else if (sortField === "sector") { av = (a.sector || "").toLowerCase(); bv = (b.sector || "").toLowerCase(); }
       if (av < bv) return -1 * dir;
       if (av > bv) return  1 * dir;
       return 0;
@@ -2364,9 +2368,10 @@ function TradingPortfolioTable() {
   }
 
   const SORT_BUTTONS = [
-    { field: "amount",  label: "Monto",  defaultDir: "desc" },
-    { field: "type",    label: "Tipo",   defaultDir: "asc"  },
-    { field: "percent", label: "%",      defaultDir: "desc" },
+    { field: "amount", label: "Monto",  defaultDir: "desc" },
+    { field: "type",   label: "Tipo",   defaultDir: "asc"  },
+    { field: "beta",   label: "Beta",   defaultDir: "desc" },
+    { field: "sector", label: "Sector", defaultDir: "asc"  },
   ];
 
   // Inline select helper — colorFn(value) opcionalmente pinta un punto + el texto
@@ -3319,17 +3324,23 @@ function TradingView() {
                 padding: "16px 22px",
                 background: `linear-gradient(90deg, ${s.color}12, transparent)`,
                 borderBottom: `1px solid ${C.border}`,
-                display: "flex", alignItems: "center", gap: 12,
+                display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
               }}>
-                <span style={{ fontSize: 20 }}>{s.icon}</span>
-                <div>
-                  <div style={{ fontFamily: "'Nunito',sans-serif", fontSize: 17, fontWeight: 700, color: C.text, lineHeight: 1.1 }}>
-                    {s.label}
-                  </div>
-                  <div style={{ color: C.textMuted, fontSize: 11, marginTop: 2 }}>
-                    {TRADING_SUBTITLES[s.key]}
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <span style={{ fontSize: 20 }}>{s.icon}</span>
+                  <div>
+                    <div style={{ fontFamily: "'Nunito',sans-serif", fontSize: 17, fontWeight: 700, color: C.text, lineHeight: 1.1 }}>
+                      {s.label}
+                    </div>
+                    <div style={{ color: C.textMuted, fontSize: 11, marginTop: 2 }}>
+                      {TRADING_SUBTITLES[s.key]}
+                    </div>
                   </div>
                 </div>
+                {/* Notas — mismo componente de comentarios que usan CEDEARs/Merval/Crypto */}
+                {s.key === "portfolio" && (
+                  <CommentBubble sectionKey="trading-portfolio" color={s.color}/>
+                )}
               </div>
 
               {/* Section body */}
