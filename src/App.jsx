@@ -51,9 +51,17 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, LineChart, Line, XAx
 //       tres namespaces. Importar ahora recarga la página (window.location.reload)
 //       para que Expenses y Trading, que mantienen su propio estado interno,
 //       reflejen los datos recién importados sin necesidad de cambiar de tab
+// v2.25 CEDEARs/Merval/Crypto — cambio de modelo de datos: columnas reducidas a
+//       Ticker/Empresa/Cantidad + nuevas Tipo (lista propia por sección) y
+//       Valor ARS/Valor USD (uno cargado a mano según la sección — USD para
+//       CEDEARs/Crypto, ARS para Merval — el otro calculado vía MEP/Dólar
+//       Crypto solo de referencia). Ya no hay P. Compra/P. Actual ni P&L del
+//       mes: el único "P&L" ahora es el delta vs mes anterior por ticker.
+//       CEDEARs pasa a ser nativo USD (antes ARS). "Total Invested" (dashboard
+//       y gráfico EOT) reemplazado por "Δ vs Mes Anterior" (CEDEARs+Merval+Crypto)
 // ─────────────────────────────────────────────────────────────────────────────
-const APP_VERSION = "2.24";
-const APP_BUILD   = new Date("2026-07-04").toISOString().slice(0,10);
+const APP_VERSION = "2.25";
+const APP_BUILD   = new Date("2026-07-05").toISOString().slice(0,10);
 
 
 const FONTS = `
@@ -83,7 +91,7 @@ const C = {
 };
 
 const SECTION_META = {
-  cedears: { label: "CEDEARs", sub: "Mercado argentino · ARS", currency: "ARS", color: C.cedear, emoji: "🏦" },
+  cedears: { label: "CEDEARs", sub: "Mercado argentino · USD", currency: "USD", color: C.cedear, emoji: "🏦" },
   pesos:   { label: "Merval", sub: "Renta local · ARS", currency: "ARS", color: C.pesos,  emoji: "📈" },
   crypto:  { label: "Crypto",        sub: "Activos digitales · USD", currency: "USD", color: C.crypto, emoji: "⬡" },
 };
@@ -202,12 +210,20 @@ const EMPTY_FX = { mep:"", ccl:"", crypto:"" };
 function cashKey(y,m){ return `portfolio:cash:${y}-${String(m).padStart(2,"0")}`; }
 const EMPTY_CASH = { uala:"", mp:"", fisicos:"", online_banco:"", online_iol:"" };
 function commentKey(section){ return `portfolio:comment:${section}`; }
-function emptyRow(){ return {id:Date.now()+Math.random(),ticker:"",name:"",shares:"",buyPrice:"",currentPrice:""}; }
+// Cada fila ahora es un snapshot mensual: cantidad + tipo + un único "valor"
+// nativo cargado a mano (USD para CEDEARs/Crypto, ARS para Merval). El otro
+// valor de moneda se calcula al vuelo vía FX solo como referencia — no se guarda.
+function emptyRow(){ return {id:Date.now()+Math.random(),ticker:"",name:"",shares:"",type:"",valor:""}; }
 
-function calcPnL(row){
-  const sh=parseFloat(row.shares)||0, bp=parseFloat(row.buyPrice)||0, cp=parseFloat(row.currentPrice)||0;
-  if(!sh||!bp||!cp) return {pnlPct:null,pnlAmt:null,value:null};
-  return {pnlPct:((cp-bp)/bp)*100, pnlAmt:(cp-bp)*sh, value:cp*sh, originalValue:bp*sh};
+// "Tipo" — lista propia por sección, adaptada a la naturaleza de cada mercado
+const CEDEAR_TYPES = ["Core ETF","Growth","Dividend","Defensive","Trade","Other"];
+const MERVAL_TYPES = ["Bancos","Energía","Materiales","Industriales","Utilities","Consumo","Other"];
+const CRYPTO_TYPES = ["Layer 1","Layer 2","Stablecoin","Altcoin","DeFi","Meme","Other"];
+const SECTION_TYPE_OPTIONS = { cedears: CEDEAR_TYPES, pesos: MERVAL_TYPES, crypto: CRYPTO_TYPES };
+
+function calcValue(row){
+  const v = parseFloat(row.valor);
+  return { value: (!isNaN(v) && v !== 0) ? v : null };
 }
 
 function fmt(n,dec=2){
@@ -231,8 +247,8 @@ function pnlBg(val) {
   return val > 0 ? C.greenBg : C.redBg;
 }
 
-function Badge({children,color}){
-  return <span style={{display:"inline-block",padding:"2px 9px",borderRadius:99,background:`${color}18`,color,fontSize:11,fontWeight:600,letterSpacing:"0.04em",fontFamily:"'DM Mono',monospace"}}>{children}</span>;
+function Badge({children,color,title}){
+  return <span title={title} style={{display:"inline-block",padding:"2px 9px",borderRadius:99,background:`${color}18`,color,fontSize:11,fontWeight:600,letterSpacing:"0.04em",fontFamily:"'DM Mono',monospace"}}>{children}</span>;
 }
 
 function PnLCell({val,pct,currency}){
@@ -457,7 +473,7 @@ function SectionPieChart({ data, toDisplay, meta, noFx, dispCurrency }) {
   const rows = Array.isArray(data) ? data : [];
   const chartData = rows
     .map(r => {
-      const { value } = calcPnL(r);
+      const { value } = calcValue(r);
       const disp = toDisplay(value);
       return { name: r.ticker || "—", value: disp && disp > 0 ? disp : 0 };
     })
@@ -635,8 +651,8 @@ function ComparePanel({ sectionKey, currentData, prevData, fxRates, showARS, pre
   const rows = allTickers.map(ticker => {
     const c = curr.find(r=>r.ticker===ticker) || null;
     const p = prev.find(r=>r.ticker===ticker) || null;
-    const { value: cVal, pnlAmt: cPnl } = c ? calcPnL(c) : { value:null, pnlAmt:null };
-    const { value: pVal, pnlAmt: pPnl } = p ? calcPnL(p) : { value:null, pnlAmt:null };
+    const { value: cVal } = c ? calcValue(c) : { value:null };
+    const { value: pVal } = p ? calcValue(p) : { value:null };
     const cValDisp = toDisplay(cVal);
     const pValDisp = toDisplay(pVal);
     const deltaVal = (cValDisp!==null && pValDisp!==null) ? cValDisp - pValDisp : null;
@@ -783,9 +799,9 @@ function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCo
   const timers = useRef({});
 
   // FX conversion — always convert to the selected display currency
-  // CEDEARs: native USD → ARS = ×CCL  |  USD = no change
+  // CEDEARs: native USD → ARS = ×MEP  |  USD = no change
   // Pesos:   native ARS → USD = ÷MEP  |  ARS = no change
-  // Crypto:  native USD → ARS = ×Crypto | USD = no change
+  // Crypto:  native USD → ARS = ×Dólar Crypto | USD = no change
   const FX_KEY_MAP = { cedears:"mep", pesos:"mep", crypto:"crypto" };
   const nativeIsARS = meta.currency === "ARS";
   const dispCurrency = showARS ? "ARS" : "USD";
@@ -802,7 +818,20 @@ function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCo
     return nativeVal;
   }
 
-  const [sortKey, setSortKey] = useState(null);   // null | "value" | "pnl"
+  // La tabla siempre muestra Valor ARS Y Valor USD juntos (no dependen del
+  // toggle showARS). Uno es el valor nativo cargado a mano; el otro es una
+  // referencia calculada vía FX, jamás persistida.
+  const mepRate    = parseFloat(fxRates?.mep)    || null;
+  const cryptoRate = parseFloat(fxRates?.crypto) || null;
+  function valuesFor(nativeVal) {
+    if (nativeVal === null || nativeVal === undefined || isNaN(nativeVal)) return { ars: null, usd: null };
+    if (sectionKey === "pesos")   return { ars: nativeVal, usd: mepRate ? nativeVal / mepRate : null };
+    if (sectionKey === "cedears") return { ars: mepRate ? nativeVal * mepRate : null, usd: nativeVal };
+    return { ars: cryptoRate ? nativeVal * cryptoRate : null, usd: nativeVal }; // crypto
+  }
+  const nativeFieldLabel = sectionKey === "pesos" ? "ars" : "usd"; // cuál de los dos es el campo manual
+
+  const [sortKey, setSortKey] = useState(null);   // null | "value"
   const [sortDir, setSortDir] = useState("desc");  // "asc" | "desc"
 
   function toggleSort(key) {
@@ -841,10 +870,11 @@ function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCo
     const nextMonth = month === 12 ? 1 : month + 1;
     const nextYear  = month === 12 ? year + 1 : year;
     const key = makeKey(sectionKey, nextYear, nextMonth);
-    // Copy tickers, names and buy prices — clear shares and currentPrice
+    // Copiamos ticker, nombre y tipo (atributos estables) — Cantidad y Valor
+    // quedan en blanco a propósito: cada mes es un snapshot nuevo para cargar.
     const copied = data
       .filter(r => r.ticker)
-      .map(r => ({ ...emptyRow(), ticker: r.ticker, name: r.name, buyPrice: r.buyPrice }));
+      .map(r => ({ ...emptyRow(), ticker: r.ticker, name: r.name, type: r.type }));
     if (copied.length === 0) return;
     // Warn if next month already has data
     try {
@@ -869,11 +899,10 @@ function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCo
     return compareData.find(r=>r.ticker===ticker)||null;
   }
 
-  const totVal=toDisplay(data.reduce((s,r)=>s+(calcPnL(r).value||0),0));
-  const totOriginal=toDisplay(data.reduce((s,r)=>s+(calcPnL(r).originalValue||0),0));
-  const totPnL=toDisplay(data.reduce((s,r)=>s+(calcPnL(r).pnlAmt||0),0));
-  const totCost=data.reduce((s,r)=>s+(parseFloat(r.shares)||0)*(parseFloat(r.buyPrice)||0),0);
-  const totPct=totCost>0?(data.reduce((s,r)=>s+(calcPnL(r).pnlAmt||0),0)/totCost)*100:null;
+  // Totales de la sección — siempre en ambas monedas (ARS y USD), ya que la
+  // tabla muestra las dos columnas juntas. Ya no hay costo base ni P&L acá.
+  const totalsARS = data.reduce((s,r)=>{ const {ars}=valuesFor(calcValue(r).value); return s+(ars||0); },0);
+  const totalsUSD = data.reduce((s,r)=>{ const {usd}=valuesFor(calcValue(r).value); return s+(usd||0); },0);
 
   const thSt={
     color:C.textMuted,fontSize:10,fontWeight:500,letterSpacing:"0.1em",textTransform:"uppercase",
@@ -887,20 +916,16 @@ function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCo
     width:"100%",outline:"none",borderRadius:6,transition:"background 0.15s",
   };
 
-  // Sort rows if a sort key is active
+  // Sort rows if a sort key is active — solo queda "value" (ya no hay P&L que ordenar)
   const displayRows = sortKey ? [...data].sort((a, b) => {
-    const av = sortKey === "value"
-      ? (toDisplay(calcPnL(a).value) ?? -Infinity)
-      : (toDisplay(calcPnL(a).pnlAmt) ?? -Infinity);
-    const bv = sortKey === "value"
-      ? (toDisplay(calcPnL(b).value) ?? -Infinity)
-      : (toDisplay(calcPnL(b).pnlAmt) ?? -Infinity);
+    const av = toDisplay(calcValue(a).value) ?? -Infinity;
+    const bv = toDisplay(calcValue(b).value) ?? -Infinity;
     return sortDir === "desc" ? bv - av : av - bv;
   }) : data;
 
   // Build pie chart data using converted values
   const pieData = data.map(r => {
-    const { value } = calcPnL(r);
+    const { value } = calcValue(r);
     return { name: r.ticker||"—", value: toDisplay(value) };
   });
 
@@ -934,21 +959,18 @@ function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCo
           </div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:20}}>
-          {totVal>0&&(
+          {(totalsARS>0||totalsUSD>0)&&(
             <div style={{textAlign:"right",display:"flex",gap:24}}>
               <div>
-                <div style={{color:C.textMuted,fontSize:10,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:4}}>V. Original</div>
-                <div style={{fontFamily:"'DM Mono',monospace",fontSize:15,fontWeight:500,color:C.textSub}}>
-                  {(!noFx&&totOriginal!==null)?fmt(totOriginal):"—"} <span style={{fontSize:10,color:C.textMuted}}>{dispCurrency}</span>
+                <div style={{color:C.textMuted,fontSize:10,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:4}}>Total ARS</div>
+                <div style={{fontFamily:"'DM Mono',monospace",fontSize:15,fontWeight:500,color: nativeFieldLabel==="ars"?C.text:C.textSub}}>
+                  {totalsARS>0?fmt(totalsARS):"—"} <span style={{fontSize:10,color:C.textMuted}}>ARS</span>
                 </div>
               </div>
               <div>
-                <div style={{color:C.textMuted,fontSize:10,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:4}}>V. Actual</div>
-                <div style={{fontFamily:"'DM Mono',monospace",fontSize:15,fontWeight:500,color:C.text}}>
-                  {(!noFx&&totVal!==null)?fmt(totVal):"—"} <span style={{fontSize:10,color:C.textMuted}}>{dispCurrency}</span>
-                </div>
-                <div style={{fontSize:11,fontFamily:"'DM Mono',monospace",color:pnlColor(totPnL),marginTop:2}}>
-                  {totPnL>0?"▲":totPnL<0?"▼":"●"} {fmtPct(totPct)} &nbsp;({totPnL>0?"+":""}{fmt(totPnL)})
+                <div style={{color:C.textMuted,fontSize:10,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:4}}>Total USD</div>
+                <div style={{fontFamily:"'DM Mono',monospace",fontSize:15,fontWeight:500,color: nativeFieldLabel==="usd"?C.text:C.textSub}}>
+                  {totalsUSD>0?fmt(totalsUSD):"—"} <span style={{fontSize:10,color:C.textMuted}}>USD</span>
                 </div>
               </div>
             </div>
@@ -998,20 +1020,15 @@ function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCo
               <th style={{...thSt,width:90}}>Ticker</th>
               <th style={{...thSt}}>Empresa</th>
               <th style={{...thSt,width:100,textAlign:"right"}}>Cantidad</th>
-              <th style={{...thSt,width:120,textAlign:"right"}}>P. Compra</th>
-              <th style={{...thSt,width:120,textAlign:"right"}}>P. Actual</th>
-              <th style={{...thSt,width:130,textAlign:"right"}}>V. Original ({dispCurrency})</th>
+              <th style={{...thSt,width:130}}>Tipo</th>
               <th style={{...thSt,width:130,textAlign:"right"}}>
                 <span style={{display:"inline-flex",alignItems:"center",justifyContent:"flex-end",gap:2}}>
-                  V. Actual ({dispCurrency})
+                  Valor ARS {nativeFieldLabel==="ars" && <span title="Carga manual" style={{color:meta.color}}>●</span>}
                   <SortButton active={sortKey==="value"} dir={sortDir} onClick={()=>toggleSort("value")}/>
                 </span>
               </th>
-              <th style={{...thSt,width:150,textAlign:"right"}}>
-                <span style={{display:"inline-flex",alignItems:"center",justifyContent:"flex-end",gap:2}}>
-                  P&amp;L ({dispCurrency})
-                  <SortButton active={sortKey==="pnl"} dir={sortDir} onClick={()=>toggleSort("pnl")}/>
-                </span>
+              <th style={{...thSt,width:130,textAlign:"right"}}>
+                Valor USD {nativeFieldLabel==="usd" && <span title="Carga manual" style={{color:meta.color}}>●</span>}
               </th>
               {showCompare&&<th style={{...thSt,width:130,textAlign:"right"}}>Δ Mes Ant.</th>}
               <th style={{...thSt,width:44}}></th>
@@ -1019,15 +1036,18 @@ function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCo
           </thead>
           <tbody>
             {data.length===0&&(
-              <tr><td colSpan={showCompare?10:9} style={{...tdSt,textAlign:"center",color:C.textMuted,padding:40,fontSize:13}}>
+              <tr><td colSpan={showCompare?8:7} style={{...tdSt,textAlign:"center",color:C.textMuted,padding:40,fontSize:13}}>
                 Sin posiciones · Hacé clic en "+ Agregar fila"
               </td></tr>
             )}
             {displayRows.map(row=>{
-              const {pnlPct,pnlAmt,value,originalValue}=calcPnL(row);
+              const { value } = calcValue(row);
+              const { ars: valArs, usd: valUsd } = valuesFor(value);
               const prev=getPrevRow(row.ticker);
+              // Δ Mes Ant. — en moneda nativa de la fila, sin depender de ningún FX
               let delta=null;
-              if(prev){const {pnlAmt:pa}=calcPnL(prev);if(pnlAmt!==null&&pa!==null)delta=pnlAmt-pa;}
+              if(prev){ const { value: pv } = calcValue(prev); if(value!==null&&pv!==null) delta = value-pv; }
+              const nativeCurrencyLabel = sectionKey==="pesos" ? "ARS" : "USD";
               return (
                 <tr key={row.id}
                   onMouseEnter={e=>e.currentTarget.style.background=C.cardHover}
@@ -1055,34 +1075,49 @@ function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCo
                       onBlur={e=>e.target.style.background="transparent"}
                     />
                   </td>
-                  <td style={{...tdSt,textAlign:"right"}}>
-                    <input value={row.buyPrice} onChange={e=>updateRow(row.id,"buyPrice",e.target.value)}
-                      placeholder="0.00" type="text" inputMode="decimal" style={{...inpSt,textAlign:"right",width:90}}
-                      onFocus={e=>e.target.style.background=C.surface}
+                  <td style={tdSt}>
+                    <select value={row.type||""} onChange={e=>updateRow(row.id,"type",e.target.value)}
+                      style={{...inpSt,cursor:"pointer",appearance:"none",WebkitAppearance:"none"}}
+                      onFocus={e=>e.target.style.background=`${meta.color}12`}
                       onBlur={e=>e.target.style.background="transparent"}
-                    />
+                    >
+                      <option value="">—</option>
+                      {SECTION_TYPE_OPTIONS[sectionKey].map(o=><option key={o} value={o}>{o}</option>)}
+                    </select>
                   </td>
-                  <td style={{...tdSt,textAlign:"right"}}>
-                    <input value={row.currentPrice} onChange={e=>updateRow(row.id,"currentPrice",e.target.value)}
-                      placeholder="0.00" type="text" inputMode="decimal" style={{...inpSt,textAlign:"right",width:90}}
-                      onFocus={e=>e.target.style.background=C.surface}
-                      onBlur={e=>e.target.style.background="transparent"}
-                    />
+                  {/* Valor ARS — manual si la sección es nativa ARS (Merval), referencia calculada si no */}
+                  <td style={{...tdSt,textAlign:"right", background: nativeFieldLabel==="ars" ? "transparent" : `${meta.color}06`}}>
+                    {nativeFieldLabel==="ars" ? (
+                      <input value={row.valor} onChange={e=>updateRow(row.id,"valor",e.target.value)}
+                        placeholder="0.00" type="text" inputMode="decimal" style={{...inpSt,textAlign:"right",width:100,fontWeight:600}}
+                        onFocus={e=>e.target.style.background=C.surface}
+                        onBlur={e=>e.target.style.background="transparent"}
+                      />
+                    ) : (
+                      <span style={{fontFamily:"'DM Mono',monospace",fontSize:12,color:C.textSub,fontStyle:"italic"}}>
+                        {valArs!==null?fmt(valArs):"—"}
+                      </span>
+                    )}
                   </td>
-                  <td style={{...tdSt,textAlign:"right",fontFamily:"'DM Mono',monospace",color:C.textMuted,fontSize:12}}>
-                    {originalValue!==null?(noFx?"—":`${fmt(toDisplay(originalValue))} ${dispCurrency}`):"—"}
-                  </td>
-                  <td style={{...tdSt,textAlign:"right",fontFamily:"'DM Mono',monospace",color:C.textSub,fontSize:12}}>
-                    {value!==null?(noFx?"—":`${fmt(toDisplay(value))} ${dispCurrency}`):"—"}
-                  </td>
-                  <td style={{...tdSt,textAlign:"right"}}>
-                    <PnLCell val={noFx?null:toDisplay(pnlAmt)} pct={noFx?null:pnlPct} currency={dispCurrency}/>
+                  {/* Valor USD — manual si la sección es nativa USD (CEDEARs/Crypto), referencia calculada si no (Merval) */}
+                  <td style={{...tdSt,textAlign:"right", background: nativeFieldLabel==="usd" ? "transparent" : `${meta.color}06`}}>
+                    {nativeFieldLabel==="usd" ? (
+                      <input value={row.valor} onChange={e=>updateRow(row.id,"valor",e.target.value)}
+                        placeholder="0.00" type="text" inputMode="decimal" style={{...inpSt,textAlign:"right",width:100,fontWeight:600}}
+                        onFocus={e=>e.target.style.background=C.surface}
+                        onBlur={e=>e.target.style.background="transparent"}
+                      />
+                    ) : (
+                      <span style={{fontFamily:"'DM Mono',monospace",fontSize:12,color:C.textSub,fontStyle:"italic"}}>
+                        {valUsd!==null?fmt(valUsd):"—"}
+                      </span>
+                    )}
                   </td>
                   {showCompare&&(
                     <td style={{...tdSt,textAlign:"right",fontFamily:"'DM Mono',monospace",fontSize:12}}>
-                      {delta!==null&&!noFx
-                        ?<span style={{color:pnlColor(delta),fontWeight:600}}>{delta>0?"+":""}{fmt(toDisplay(delta))} {dispCurrency}</span>
-                        :<span style={{color:C.textMuted}}>{delta!==null&&noFx?"Sin TC":"—"}</span>}
+                      {delta!==null
+                        ?<span style={{color:pnlColor(delta),fontWeight:600}}>{delta>0?"+":""}{fmt(delta)} {nativeCurrencyLabel}</span>
+                        :<span style={{color:C.textMuted}}>—</span>}
                     </td>
                   )}
                   <td style={{...tdSt,textAlign:"center"}}>
@@ -1284,7 +1319,7 @@ const EOT_SERIES = [
   { key:"crypto",    label:"Crypto",         color:"#a78bfa" },
   { key:"dolares",   label:"Dólares",        color:"#22c55e" },
   { key:"grandTotal",label:"Grand Total",    color:"#6c63ff" },
-  { key:"invested",  label:"Total Invested", color:"#f87171" },
+  { key:"delta",     label:"Δ vs Mes Ant.",  color:"#f87171" },
 ];
 
 const RANGE_OPTIONS = [
@@ -1309,7 +1344,7 @@ function EOTView({ showARS }) {
     // Sort ascending
     months.sort((a,b) => a.year!==b.year ? a.year-b.year : a.month-b.month);
 
-    return months.map(({ year, month }) => {
+    const monthly = months.map(({ year, month }) => {
       // Load each section
       const sections = {};
       for (const s of ["cedears","pesos","crypto"]) {
@@ -1332,14 +1367,10 @@ function EOTView({ showARS }) {
       // Compute native totals per section
       function sectionNativeTotal(s) {
         return (Array.isArray(sections[s])?sections[s]:[])
-          .reduce((a,r) => a + (calcPnL(r).value || 0), 0);
-      }
-      function sectionNativeCost(s) {
-        return (Array.isArray(sections[s])?sections[s]:[])
-          .reduce((a,r) => a + (parseFloat(r.shares)||0)*(parseFloat(r.buyPrice)||0), 0);
+          .reduce((a,r) => a + (calcValue(r).value || 0), 0);
       }
 
-      const cedearARS  = sectionNativeTotal("cedears"); // native ARS ÷ MEP
+      const cedearUSD  = sectionNativeTotal("cedears"); // native USD (carga manual, se calcula ARS de referencia vía MEP)
       const mervalARS  = sectionNativeTotal("pesos");   // native ARS
       const cryptoUSD  = sectionNativeTotal("crypto");  // native USD
       const pesosARS   = (parseFloat(cash.uala)||0) + (parseFloat(cash.mp)||0);
@@ -1357,7 +1388,7 @@ function EOTView({ showARS }) {
         }
       }
 
-      const cedearDisp  = toDisp(cedearARS,  true,  mepRate);
+      const cedearDisp  = toDisp(cedearUSD,  false, mepRate);   // CEDEARs es nativo USD
       const mervalDisp  = toDisp(mervalARS,  true,  mepRate);
       const cryptoDisp  = toDisp(cryptoUSD,  false, cryptoRate);
       const pesosDisp   = toDisp(pesosARS,   true,  mepRate);
@@ -1366,15 +1397,10 @@ function EOTView({ showARS }) {
       const allDisp = [cedearDisp, mervalDisp, cryptoDisp, pesosDisp, dolaresDisp];
       const grandTotal = allDisp.every(v=>v!==null) ? allDisp.reduce((a,v)=>a+v,0) : null;
 
-      // Invested = cost basis of CEDEARs + Merval + Crypto
-      const cedearCostARS  = sectionNativeCost("cedears");
-      const mervalCostARS  = sectionNativeCost("pesos");
-      const cryptoCostUSD  = sectionNativeCost("crypto");
-      const investedCedear = showARS ? cedearCostARS  : (mepRate   ? cedearCostARS/mepRate   : null);
-      const investedMerval = showARS ? mervalCostARS  : (mepRate   ? mervalCostARS/mepRate   : null);
-      const investedCrypto = showARS ? (cryptoRate?cryptoCostUSD*cryptoRate:null) : cryptoCostUSD;
-      const invested = (investedCedear!==null&&investedMerval!==null&&investedCrypto!==null)
-        ? investedCedear+investedMerval+investedCrypto : null;
+      // Total "invertido" = CEDEARs + Merval + Crypto (sin cash) — se usa abajo
+      // para calcular el delta mes a mes, ya que no hay más costo base.
+      const investmentTotal = (cedearDisp!==null && mervalDisp!==null && cryptoDisp!==null)
+        ? cedearDisp + mervalDisp + cryptoDisp : null;
 
       return {
         label: `${MONTHS[month-1].slice(0,3)} ${year}`,
@@ -1384,8 +1410,18 @@ function EOTView({ showARS }) {
         crypto:    cryptoDisp,
         dolares:   dolaresDisp,
         grandTotal,
-        invested,
+        investmentTotal,
       };
+    });
+
+    // Segundo pase: "delta" = variación del total invertido (CEDEARs+Merval+Crypto)
+    // respecto al mes calendario inmediatamente anterior en la serie.
+    return monthly.map((d, i) => {
+      const prev = i > 0 ? monthly[i-1] : null;
+      const delta = (prev && d.investmentTotal!==null && prev.investmentTotal!==null)
+        ? d.investmentTotal - prev.investmentTotal
+        : null;
+      return { ...d, delta };
     });
   }, [showARS]);
 
@@ -1503,7 +1539,7 @@ function EOTView({ showARS }) {
               <CartesianGrid stroke={C.border} strokeDasharray="3 3" vertical={false}/>
               <XAxis dataKey="label" tick={{fill:C.textMuted,fontSize:11,fontFamily:"'DM Mono',monospace"}} axisLine={false} tickLine={false}/>
               <YAxis tick={{fill:C.textMuted,fontSize:10,fontFamily:"'DM Mono',monospace"}} axisLine={false} tickLine={false}
-                tickFormatter={v=>v>=1000000?`${(v/1000000).toFixed(1)}M`:v>=1000?`${(v/1000).toFixed(0)}K`:`${v}`}
+                tickFormatter={v=>{const a=Math.abs(v);const s=v<0?"-":"";return a>=1000000?`${s}${(a/1000000).toFixed(1)}M`:a>=1000?`${s}${(a/1000).toFixed(0)}K`:`${v}`;}}
               />
               <Tooltip
                 contentStyle={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,fontFamily:"'DM Mono',monospace",fontSize:11,boxShadow:"0 8px 32px #00000080"}}
@@ -3456,22 +3492,37 @@ export default function PortfolioTracker(){
     return nativeVal;
   }
 
+  // Totales nativos del mes anterior por sección — usados para "Δ vs Mes
+  // Anterior" (reemplaza el viejo concepto de costo base / P&L). Se cargan
+  // siempre (no dependen del toggle de comparación por fila).
+  const prevMonthNativeTotals = React.useMemo(() => {
+    const prevMonthIdx = month === 0 ? 11 : month - 1;   // 0-indexado
+    const prevYear      = month === 0 ? year - 1 : year;
+    const prevMonthNum  = prevMonthIdx + 1;              // 1-indexado, para makeKey
+    const totals = {};
+    for (const s of ["cedears","pesos","crypto"]) {
+      try {
+        const r = localStorage.getItem(makeKey(s, prevYear, prevMonthNum));
+        const rows = r ? JSON.parse(r) : [];
+        totals[s] = (Array.isArray(rows)?rows:[]).reduce((a,row)=>a+(calcValue(row).value||0),0);
+      } catch { totals[s] = 0; }
+    }
+    return totals;
+  }, [year, month]);
+
   const sectionTotals=["cedears","pesos","crypto"].map(s=>{
     const rows=Array.isArray(data[s])?data[s]:[];
-    const nativeVal=rows.reduce((a,r)=>a+(calcPnL(r).value||0),0);
-    const nativePnl=rows.reduce((a,r)=>a+(calcPnL(r).pnlAmt||0),0);
-    const cost=rows.reduce((a,r)=>a+(parseFloat(r.shares)||0)*(parseFloat(r.buyPrice)||0),0);
-    const pct=cost>0?(nativePnl/cost)*100:0;
+    const nativeVal=rows.reduce((a,r)=>a+(calcValue(r).value||0),0);
+    const nativeDelta=nativeVal-(prevMonthNativeTotals[s]||0);
     // sectionToDisplay returns null when rate is missing — keep null so UI shows "—"
     const val=sectionToDisplay(s,nativeVal);
-    const pnl=sectionToDisplay(s,nativePnl);
-    return{key:s,val:val??0,pnl:pnl??0,pct,missingRate:val===null&&nativeVal>0};
+    const deltaDisp=sectionToDisplay(s,nativeDelta);
+    const prevValDisp=sectionToDisplay(s,prevMonthNativeTotals[s]||0);
+    const deltaPct=(prevValDisp&&prevValDisp>0&&deltaDisp!==null)?(deltaDisp/prevValDisp)*100:null;
+    return{key:s,val:val??0,delta:deltaDisp??0,deltaPct,missingRate:val===null&&nativeVal>0};
   });
 
   const totalVal=sectionTotals.reduce((a,s)=>a+s.val,0);
-  const totalPnL=sectionTotals.reduce((a,s)=>a+s.pnl,0);
-  const totalCost=["cedears","pesos","crypto"].reduce((a,s)=>a+(Array.isArray(data[s])?data[s]:[]).reduce((b,r)=>b+(parseFloat(r.shares)||0)*(parseFloat(r.buyPrice)||0),0),0);
-  const totalPct=totalCost>0?(["cedears","pesos","crypto"].reduce((a,s)=>a+(Array.isArray(data[s])?data[s]:[]).reduce((b,r)=>b+(calcPnL(r).pnlAmt||0),0),0)/totalCost)*100:0;
   // Cash panel totals (native currencies: Pesos=ARS, Dolares=USD)
   const totalPesosARS = (parseFloat(cash.uala)||0) + (parseFloat(cash.mp)||0);
   const totalDolaresUSD = (parseFloat(cash.fisicos)||0) + (parseFloat(cash.online_banco)||0) + (parseFloat(cash.online_iol)||0);
@@ -3499,56 +3550,33 @@ export default function PortfolioTracker(){
 
   // ── Grand Total calculations ────────────────────────────────────────────────
   // Helper: get native val for a section
-  const nativeValOf = s => (Array.isArray(data[s])?data[s]:[]).reduce((a,r)=>a+(calcPnL(r).value||0),0);
-  const nativeCostOf = s => (Array.isArray(data[s])?data[s]:[]).reduce((a,r)=>a+(parseFloat(r.shares)||0)*(parseFloat(r.buyPrice)||0),0);
+  const nativeValOf = s => (Array.isArray(data[s])?data[s]:[]).reduce((a,r)=>a+(calcValue(r).value||0),0);
 
   // 1. Grand Pesos = cash Pesos (ARS) + Merval native ARS — always in ARS
   const mervalNativeARS = nativeValOf("pesos");  // Merval is native ARS
   const grandPesosARS   = totalPesosARS + mervalNativeARS;
 
   // 2. Dolarizado = Dólares (USD) + CEDEARs (USD) + Crypto (USD) — toggle-aware
-  const cedearNativeARS  = nativeValOf("cedears");
-  const cedearUSD        = (mepRate && cedearNativeARS) ? cedearNativeARS / mepRate : null;
+  //    CEDEARs es ahora nativo USD (se carga en USD, ARS es referencia vía MEP)
+  const cedearNativeUSD  = nativeValOf("cedears");
   const cryptoNativeUSD  = nativeValOf("crypto");
-  const grandDolarizadoUSD = (cedearUSD !== null)
-    ? totalDolaresUSD + cedearUSD + cryptoNativeUSD
-    : null;
-  // Convert to ARS if toggle is ARS (CEDEARs already native ARS, crypto/dólares × CCL)
-  // Dolarizado in ARS: CEDEARs already native ARS, Dólares ×MEP, Crypto ×cryptoRate
+  const grandDolarizadoUSD = totalDolaresUSD + cedearNativeUSD + cryptoNativeUSD;
+  // Dolarizado en ARS: CEDEARs ×MEP, Dólares ×MEP, Crypto ×dólar cripto
   const cryptoRateApp = parseFloat(fxRates?.crypto)||null;
   const grandDolarizadoDisp = showARS
     ? (mepRate && cryptoRateApp
-        ? (cedearNativeARS + totalDolaresUSD * mepRate + cryptoNativeUSD * cryptoRateApp)
+        ? (cedearNativeUSD * mepRate + totalDolaresUSD * mepRate + cryptoNativeUSD * cryptoRateApp)
         : null)
     : grandDolarizadoUSD;
 
   // 3. Total Portfolio — already computed as totalVal (respects USD/ARS toggle)
 
-  // 4. Total Invested = cost basis of CEDEARs + Merval + Crypto (in display currency)
-  // Rule: if native value is 0, disp is 0 — no rate needed.
-  // Only returns null if native value > 0 but required rate is missing.
-  const investedCedearARS = nativeCostOf("cedears");  // native ARS
-  const investedMervalARS = nativeCostOf("pesos");    // native ARS
-  const investedCryptoUSD = nativeCostOf("crypto");   // native USD
-  const cryptoRateInv = parseFloat(fxRates?.crypto)||null;
-
-  function investDisp(nativeVal, isARS) {
-    if (nativeVal === 0) return 0;
-    if (showARS) {
-      if (isARS) return nativeVal;
-      return cryptoRateInv ? nativeVal * cryptoRateInv : null;
-    } else {
-      if (!isARS) return nativeVal;
-      return mepRate ? nativeVal / mepRate : null;
-    }
-  }
-
-  const investedCedearDisp = investDisp(investedCedearARS, true);
-  const investedMervalDisp = investDisp(investedMervalARS, true);
-  const investedCryptoDisp = investDisp(investedCryptoUSD, false);
-
-  const grandTotalInvestedDisp = (investedCedearDisp!==null && investedMervalDisp!==null && investedCryptoDisp!==null)
-    ? investedCedearDisp + investedMervalDisp + investedCryptoDisp : null;
+  // 4. Δ vs Mes Anterior = CEDEARs + Merval + Crypto (reemplaza "Total Invested",
+  //    que dependía de un costo base que ya no existe). Mismo criterio que
+  //    confirmaste: suma de los deltas de las 3 secciones de inversión (sin cash).
+  const grandTotalDeltaDisp = (sectionTotals[0].delta!==null && sectionTotals[1].delta!==null && sectionTotals[2].delta!==null)
+    ? sectionTotals.reduce((a,s)=>a+(s.delta||0),0)
+    : null;
 
   // Grand Total = Pesos (ARS→disp) + Dolarizado (USD→disp) fully converted
   // Pesos side: grandPesosARS converted to display currency
@@ -3563,10 +3591,13 @@ export default function PortfolioTracker(){
     ? (grandDolarizadoDisp / grandTotalAllDisp) * 100
     : null;
 
-  // P&L on invested = totalVal vs totalInvested (in same display currency)
-  const investedPnLDisp = (grandTotalInvestedDisp!==null && totalVal>0) ? totalVal - grandTotalInvestedDisp : null;
-  const investedPnLPct  = (grandTotalInvestedDisp!==null && grandTotalInvestedDisp>0 && investedPnLDisp!==null)
-    ? (investedPnLDisp/grandTotalInvestedDisp)*100 : null;
+  // % de Δ vs Mes Anterior, sobre el total invertido del mes anterior (mismo criterio que sectionTotals)
+  const prevInvestmentTotalDisp = ["cedears","pesos","crypto"].reduce((a,s)=>{
+    const p = sectionToDisplay(s, prevMonthNativeTotals[s]||0);
+    return (a===null||p===null) ? null : a+p;
+  }, 0);
+  const grandTotalDeltaPct = (prevInvestmentTotalDisp!==null && prevInvestmentTotalDisp>0 && grandTotalDeltaDisp!==null)
+    ? (grandTotalDeltaDisp/prevInvestmentTotalDisp)*100 : null;
 
 
 
@@ -3899,7 +3930,7 @@ export default function PortfolioTracker(){
                 </div>
               </div>
 
-              {/* 4. Total Invested */}
+              {/* 4. Δ vs Mes Anterior — reemplaza "Total Invested" (ya no hay costo base) */}
               <div style={{
                 background:C.card,border:`1px solid ${C.border}`,borderRadius:16,
                 padding:"20px 22px",position:"relative",overflow:"hidden",
@@ -3908,14 +3939,14 @@ export default function PortfolioTracker(){
                 <div style={{position:"absolute",top:0,left:0,right:0,height:3,background:`linear-gradient(90deg,${C.accent},${C.accent}00)`,borderRadius:"16px 16px 0 0"}}/>
                 <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
                   <span style={{fontSize:16}}>📈</span>
-                  <span style={{fontSize:11,fontWeight:600,color:C.textMuted,letterSpacing:"0.06em",textTransform:"uppercase"}}>Total Invested</span>
+                  <span style={{fontSize:11,fontWeight:600,color:C.textMuted,letterSpacing:"0.06em",textTransform:"uppercase"}}>Δ vs Mes Anterior</span>
                 </div>
                 <div style={{fontFamily:"'Nunito',sans-serif",fontSize:26,fontWeight:700,color:C.text,marginBottom:6,lineHeight:1}}>
-                  {grandTotalInvestedDisp!==null?fmt(grandTotalInvestedDisp):"—"}
+                  {grandTotalDeltaDisp!==null?`${grandTotalDeltaDisp>0?"+":""}${fmt(grandTotalDeltaDisp)}`:"—"}
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                  {investedPnLDisp!==null&&(
-                    <Badge color={pnlColor(investedPnLDisp)}>{fmtPct(investedPnLPct)}</Badge>
+                  {grandTotalDeltaPct!==null&&(
+                    <Badge color={pnlColor(grandTotalDeltaDisp)}>{grandTotalDeltaDisp>0?"+":""}{fmtPct(grandTotalDeltaPct)}</Badge>
                   )}
                   <span style={{fontSize:10,color:C.textMuted,fontFamily:"'DM Mono',monospace"}}>{showARS?"ARS":"USD"} · CEDEARs + Merval + Crypto</span>
                 </div>
@@ -3944,7 +3975,7 @@ export default function PortfolioTracker(){
                   <div style={{fontFamily:"'DM Mono',monospace",fontSize:20,fontWeight:500,color:C.text,marginBottom:8}}>
                     {s.val>0?fmt(s.val):"—"} <span style={{fontSize:11,color:C.textMuted}}>{showARS?"ARS":"USD"}</span>
                   </div>
-                  <Badge color={pnlColor(s.pnl)}>{s.val>0?fmtPct(s.pct):"—"}</Badge>
+                  <Badge color={pnlColor(s.delta)} title="vs mes anterior">{s.deltaPct!==null?`${s.delta>0?"+":""}${fmtPct(s.deltaPct)}`:"—"}</Badge>
                 </div>
               );
             })}
