@@ -42,8 +42,17 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, LineChart, Line, XAx
 // v2.22 Trading — Portafolio Actual: "Ordenar por" ahora incluye Beta y Sector
 //       (se sacó "%"), y se agregó el botón "Notas" en el header (mismo
 //       componente CommentBubble que usan CEDEARs/Merval/Crypto)
+// v2.23 Trading: botón "Notas" agregado también en Operaciones Activas.
+//       Portfolio tab: donut charts de CEDEARs, Merval y Crypto ahora se
+//       ordenan por % de menor a mayor (mismo componente SectionPieChart,
+//       un solo cambio cubre las tres secciones)
+// v2.24 FIX: Exportar solo incluía claves "portfolio:" — Expenses ("expenses:")
+//       y Trading ("trading:") quedaban afuera del backup. Ahora exporta los
+//       tres namespaces. Importar ahora recarga la página (window.location.reload)
+//       para que Expenses y Trading, que mantienen su propio estado interno,
+//       reflejen los datos recién importados sin necesidad de cambiar de tab
 // ─────────────────────────────────────────────────────────────────────────────
-const APP_VERSION = "2.22";
+const APP_VERSION = "2.24";
 const APP_BUILD   = new Date("2026-07-04").toISOString().slice(0,10);
 
 
@@ -452,7 +461,8 @@ function SectionPieChart({ data, toDisplay, meta, noFx, dispCurrency }) {
       const disp = toDisplay(value);
       return { name: r.ticker || "—", value: disp && disp > 0 ? disp : 0 };
     })
-    .filter(d => d.value > 0);
+    .filter(d => d.value > 0)
+    .sort((a, b) => a.value - b.value); // menor a mayor — ordenar por monto equivale a ordenar por % (misma proporción del total)
 
   if (chartData.length === 0) return null;
 
@@ -3338,8 +3348,11 @@ function TradingView() {
                   </div>
                 </div>
                 {/* Notas — mismo componente de comentarios que usan CEDEARs/Merval/Crypto */}
-                {s.key === "portfolio" && (
-                  <CommentBubble sectionKey="trading-portfolio" color={s.color}/>
+                {(s.key === "portfolio" || s.key === "active") && (
+                  <CommentBubble
+                    sectionKey={s.key === "portfolio" ? "trading-portfolio" : "trading-active"}
+                    color={s.color}
+                  />
                 )}
               </div>
 
@@ -3559,9 +3572,13 @@ export default function PortfolioTracker(){
 
   // ── Export / Import ────────────────────────────────────────────────────────
   function handleExport() {
-    // Collect all portfolio keys from localStorage
+    // Collect ALL app data from localStorage — covers every namespace used across
+    // tabs: "portfolio:" (Portfolio + FX/Cash + comment notes), "expenses:"
+    // (Expenses tab + its comments), and "trading:" (Trading Desk: portfolio,
+    // active trades, historic trades, and MEP hoy).
     save(); // flush current month first
-    const keys = Object.keys(localStorage).filter(k => k.startsWith("portfolio:"));
+    const EXPORT_PREFIXES = ["portfolio:", "expenses:", "trading:"];
+    const keys = Object.keys(localStorage).filter(k => EXPORT_PREFIXES.some(p => k.startsWith(p)));
     const payload = {};
     keys.forEach(k => {
       try { payload[k] = JSON.parse(localStorage.getItem(k)); } catch {}
@@ -3591,21 +3608,18 @@ export default function PortfolioTracker(){
         Object.entries(payload).forEach(([k, v]) => {
           try { localStorage.setItem(k, JSON.stringify(v)); } catch {}
         });
-        // Reload current month view
-        const loaded = {};
-        for (const s of ["cedears","pesos","crypto"]) {
-          try { const r = localStorage.getItem(makeKey(s,year,month+1)); loaded[s] = r ? JSON.parse(r) : [emptyRow()]; }
-          catch { loaded[s] = [emptyRow()]; }
-        }
-        setData(loaded);
-        try { const fx = localStorage.getItem(fxKey(year,month+1)); setFxRates(fx ? JSON.parse(fx) : EMPTY_FX); } catch {}
-        try { const c = localStorage.getItem(cashKey(year,month+1)); setCash(c ? JSON.parse(c) : EMPTY_CASH); } catch {}
-        alert("✓ Datos importados correctamente.");
+        alert("✓ Datos importados correctamente. La página se va a recargar para reflejar todo (Portfolio, Expenses y Trading).");
+        // Expenses y Trading (Portafolio Actual / Operaciones Activas) son
+        // componentes independientes que leen su propio estado inicial de
+        // localStorage solo al montarse — no escuchan cambios externos.
+        // Recargar la página es la forma más simple y confiable de garantizar
+        // que TODAS las pestañas reflejen los datos recién importados.
+        window.location.reload();
       } catch(err) {
         alert("Error al importar: " + err.message);
+        // Reset input so the same file can be re-imported if needed
+        e.target.value = "";
       }
-      // Reset input so the same file can be re-imported if needed
-      e.target.value = "";
     };
     reader.readAsText(file);
   }
