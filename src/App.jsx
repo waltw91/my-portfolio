@@ -70,8 +70,8 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, LineChart, Line, XAx
 //       colores de marca oficiales para Bitcoin (#F7931A, bitcoin.org) y
 //       Ethereum (#627EEA), más verde para Stablecoin y magenta para Altcoin
 // ─────────────────────────────────────────────────────────────────────────────
-const APP_VERSION = "2.27";
-const APP_BUILD   = new Date("2026-07-05").toISOString().slice(0,10);
+const APP_VERSION = "2.28";
+const APP_BUILD   = new Date("2026-07-08").toISOString().slice(0,10);
 
 
 const FONTS = `
