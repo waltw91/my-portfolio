@@ -59,8 +59,18 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, LineChart, Line, XAx
 //       mes: el único "P&L" ahora es el delta vs mes anterior por ticker.
 //       CEDEARs pasa a ser nativo USD (antes ARS). "Total Invested" (dashboard
 //       y gráfico EOT) reemplazado por "Δ vs Mes Anterior" (CEDEARs+Merval+Crypto)
+// v2.26 Portfolio: listas de "Tipo" actualizadas — Merval ahora usa Acción/
+//       Liquidez/FCI/Otro, Crypto ahora usa Bitcoin/Ethereum/Altcoin/
+//       Stablecoin/Otro. Agregado botón de orden en la columna "Tipo"
+//       (alfabético, arranca ascendente — de menor a mayor)
+// v2.27 Portfolio: color-coding en "Tipo" para las 3 secciones. CEDEARs ahora
+//       comparte la MISMA paleta que Trading Desk → Portafolio Actual (fuente
+//       única: TYPE_COLORS, con "Growth" agregado). Merval usa color propio
+//       por instrumento (Acción=color de sección, Liquidez/FCI). Crypto usa
+//       colores de marca oficiales para Bitcoin (#F7931A, bitcoin.org) y
+//       Ethereum (#627EEA), más verde para Stablecoin y magenta para Altcoin
 // ─────────────────────────────────────────────────────────────────────────────
-const APP_VERSION = "2.25";
+const APP_VERSION = "2.27";
 const APP_BUILD   = new Date("2026-07-05").toISOString().slice(0,10);
 
 
@@ -217,9 +227,46 @@ function emptyRow(){ return {id:Date.now()+Math.random(),ticker:"",name:"",share
 
 // "Tipo" — lista propia por sección, adaptada a la naturaleza de cada mercado
 const CEDEAR_TYPES = ["Core ETF","Growth","Dividend","Defensive","Trade","Other"];
-const MERVAL_TYPES = ["Bancos","Energía","Materiales","Industriales","Utilities","Consumo","Other"];
-const CRYPTO_TYPES = ["Layer 1","Layer 2","Stablecoin","Altcoin","DeFi","Meme","Other"];
+const MERVAL_TYPES = ["Acción","Liquidez","FCI","Otro"];
+const CRYPTO_TYPES = ["Bitcoin","Ethereum","Altcoin","Stablecoin","Otro"];
 const SECTION_TYPE_OPTIONS = { cedears: CEDEAR_TYPES, pesos: MERVAL_TYPES, crypto: CRYPTO_TYPES };
+
+// Colores de "Tipo" — CEDEARs comparte esta MISMA paleta con Trading Desk
+// (Portafolio Actual), ya que ambas secciones usan la taxonomía de CEDEARs.
+// Fuente única de verdad: si se ajusta un color acá, se refleja en los dos lugares.
+const TYPE_COLORS = {
+  "Core ETF":  "#06b6d4", // cian — el color de la sección, para el "core" de la cartera
+  "Growth":    "#818cf8", // índigo — crecimiento/momentum
+  "Defensive": "#34d399", // verde — bajo riesgo
+  "Dividend":  "#f59e0b", // ámbar/dorado — income
+  "Trade":     "#fb923c", // naranja — posiciones activas / mayor rotación
+  "Other":     "#9ca3af", // gris neutro
+};
+function colorForType(type) { return type ? (TYPE_COLORS[type] || C.textMuted) : C.textMuted; }
+
+// Merval — criterio propio: Acción usa el color de la sección (posición núcleo),
+// Liquidez/FCI reflejan el perfil de riesgo del instrumento.
+const MERVAL_TYPE_COLORS = {
+  "Acción":   C.pesos,    // celeste — el color de la sección, para la posición núcleo (renta variable)
+  "Liquidez": "#34d399",  // verde — cauciones/money market, bajo riesgo
+  "FCI":      "#a78bfa",  // violeta — vehículo de inversión diversificado/gestionado
+  "Otro":     "#9ca3af",  // gris neutro
+};
+function colorForMervalType(type) { return type ? (MERVAL_TYPE_COLORS[type] || C.textMuted) : C.textMuted; }
+
+// Crypto — Bitcoin y Ethereum usan sus colores de marca oficiales/más reconocidos;
+// Altcoin y Stablecoin siguen la convención de la app (verde = estable/bajo riesgo).
+const CRYPTO_TYPE_COLORS = {
+  "Bitcoin":    "#F7931A", // "Bitcoin Orange" — color de marca oficial (bitcoin.org)
+  "Ethereum":   "#627EEA", // el tono más citado en exchanges/CoinMarketCap para ETH
+  "Altcoin":    "#e879f9", // magenta — cesta diversa de otras monedas
+  "Stablecoin": "#34d399", // verde — estabilidad/bajo riesgo
+  "Otro":       "#9ca3af", // gris neutro
+};
+function colorForCryptoType(type) { return type ? (CRYPTO_TYPE_COLORS[type] || C.textMuted) : C.textMuted; }
+
+// Lookup único: qué función de color usar según la sección
+const SECTION_TYPE_COLOR_FN = { cedears: colorForType, pesos: colorForMervalType, crypto: colorForCryptoType };
 
 function calcValue(row){
   const v = parseFloat(row.valor);
@@ -834,9 +881,9 @@ function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCo
   const [sortKey, setSortKey] = useState(null);   // null | "value"
   const [sortDir, setSortDir] = useState("desc");  // "asc" | "desc"
 
-  function toggleSort(key) {
+  function toggleSort(key, defaultDir = "desc") {
     if (sortKey === key) setSortDir(d => d === "desc" ? "asc" : "desc");
-    else { setSortKey(key); setSortDir("desc"); }
+    else { setSortKey(key); setSortDir(defaultDir); }
   }
 
   function resolveTickerName(id,ticker){
@@ -916,8 +963,15 @@ function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCo
     width:"100%",outline:"none",borderRadius:6,transition:"background 0.15s",
   };
 
-  // Sort rows if a sort key is active — solo queda "value" (ya no hay P&L que ordenar)
+  // Sort rows if a sort key is active — "value" (numérico) o "type" (alfabético)
   const displayRows = sortKey ? [...data].sort((a, b) => {
+    if (sortKey === "type") {
+      const av = (a.type || "").toLowerCase();
+      const bv = (b.type || "").toLowerCase();
+      if (av < bv) return sortDir === "asc" ? -1 : 1;
+      if (av > bv) return sortDir === "asc" ? 1 : -1;
+      return 0;
+    }
     const av = toDisplay(calcValue(a).value) ?? -Infinity;
     const bv = toDisplay(calcValue(b).value) ?? -Infinity;
     return sortDir === "desc" ? bv - av : av - bv;
@@ -1020,7 +1074,12 @@ function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCo
               <th style={{...thSt,width:90}}>Ticker</th>
               <th style={{...thSt}}>Empresa</th>
               <th style={{...thSt,width:100,textAlign:"right"}}>Cantidad</th>
-              <th style={{...thSt,width:130}}>Tipo</th>
+              <th style={{...thSt,width:130}}>
+                <span style={{display:"inline-flex",alignItems:"center",gap:2}}>
+                  Tipo
+                  <SortButton active={sortKey==="type"} dir={sortDir} onClick={()=>toggleSort("type","asc")}/>
+                </span>
+              </th>
               <th style={{...thSt,width:130,textAlign:"right"}}>
                 <span style={{display:"inline-flex",alignItems:"center",justifyContent:"flex-end",gap:2}}>
                   Valor ARS {nativeFieldLabel==="ars" && <span title="Carga manual" style={{color:meta.color}}>●</span>}
@@ -1076,14 +1135,17 @@ function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCo
                     />
                   </td>
                   <td style={tdSt}>
-                    <select value={row.type||""} onChange={e=>updateRow(row.id,"type",e.target.value)}
-                      style={{...inpSt,cursor:"pointer",appearance:"none",WebkitAppearance:"none"}}
-                      onFocus={e=>e.target.style.background=`${meta.color}12`}
-                      onBlur={e=>e.target.style.background="transparent"}
-                    >
-                      <option value="">—</option>
-                      {SECTION_TYPE_OPTIONS[sectionKey].map(o=><option key={o} value={o}>{o}</option>)}
-                    </select>
+                    <div style={{display:"flex",alignItems:"center",gap:6}}>
+                      {row.type && <span style={{width:8,height:8,borderRadius:2,background:SECTION_TYPE_COLOR_FN[sectionKey](row.type),flexShrink:0}}/>}
+                      <select value={row.type||""} onChange={e=>updateRow(row.id,"type",e.target.value)}
+                        style={{...inpSt,cursor:"pointer",appearance:"none",WebkitAppearance:"none",color:row.type?SECTION_TYPE_COLOR_FN[sectionKey](row.type):C.text}}
+                        onFocus={e=>e.target.style.background=`${meta.color}12`}
+                        onBlur={e=>e.target.style.background="transparent"}
+                      >
+                        <option value="">—</option>
+                        {SECTION_TYPE_OPTIONS[sectionKey].map(o=><option key={o} value={o}>{o}</option>)}
+                      </select>
+                    </div>
                   </td>
                   {/* Valor ARS — manual si la sección es nativa ARS (Merval), referencia calculada si no */}
                   <td style={{...tdSt,textAlign:"right", background: nativeFieldLabel==="ars" ? "transparent" : `${meta.color}06`}}>
@@ -2315,14 +2377,8 @@ const SECTOR_PALETTE = ["#06b6d4","#f59e0b","#a78bfa","#34d399","#f87171","#60a5
 const SECTOR_COLORS = Object.fromEntries(TRADING_SECTORS.map((s, i) => [s, SECTOR_PALETTE[i % SECTOR_PALETTE.length]]));
 function colorForSector(sector) { return sector ? (SECTOR_COLORS[sector] || C.textMuted) : C.textMuted; }
 
-const TYPE_COLORS = {
-  "Core ETF":  "#06b6d4", // cian — el color de la sección, para el "core" de la cartera
-  "Defensive": "#34d399", // verde — bajo riesgo
-  "Dividend":  "#f59e0b", // ámbar/dorado — income
-  "Trade":     "#fb923c", // naranja — posiciones activas / mayor rotación
-  "Other":     "#9ca3af", // gris neutro
-};
-function colorForType(type) { return type ? (TYPE_COLORS[type] || C.textMuted) : C.textMuted; }
+// TYPE_COLORS / colorForType — definidos junto a CEDEAR_TYPES (fuente única
+// compartida con Portfolio → CEDEARs, ya que usan la misma taxonomía de Tipo).
 
 
 // ── Trading: Portafolio Actual table ─────────────────────────────────────────
