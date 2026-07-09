@@ -69,9 +69,23 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, LineChart, Line, XAx
 //       por instrumento (Acción=color de sección, Liquidez/FCI). Crypto usa
 //       colores de marca oficiales para Bitcoin (#F7931A, bitcoin.org) y
 //       Ethereum (#627EEA), más verde para Stablecoin y magenta para Altcoin
+// v2.28 Trading: nueva 4ta sección "Merval" (acciones argentinas / Homebroker).
+//       Estructura inicial: Ticker/Fecha/Cantidad/$ Compra-PPC manuales; Total
+//       PPC, Dif. $/%, W/L y barra de stats (W/L %, Open/Close, Ops. Ab. %)
+//       calculados. Status (Open/Closed) es un toggle manual por fila. A
+//       afinar en próximas rondas según feedback
+// v2.29 Trading → Merval: agregada columna "PPC Actual" (precio unitario actual,
+//       manual). "Precio" pasa a ser "Precio Actual" = Cantidad × PPC Actual
+//       (calculado, mismo patrón simétrico que $ Compra/PPC → Total PPC).
+//       Dif. $ ahora es Precio Actual − Total PPC (antes restaba un precio
+//       unitario contra un total, lo cual no era una magnitud coherente)
+// v2.30 Trading → Merval: agregado ordenamiento (SortButton) en Fecha, Precio
+//       Actual, Dif. $ y Status — Fecha/Status alfabético, Precio Actual/Dif. $
+//       numérico. Ícono de la solapa cambiado de 🇦🇷 a 📈, el mismo emoji que
+//       ya usa "Merval" en la solapa Portfolio (misma identidad visual)
 // ─────────────────────────────────────────────────────────────────────────────
-const APP_VERSION = "2.27";
-const APP_BUILD   = new Date("2026-07-05").toISOString().slice(0,10);
+const APP_VERSION = "2.30";
+const APP_BUILD   = new Date("2026-07-08").toISOString().slice(0,10);
 
 
 const FONTS = `
@@ -3337,11 +3351,321 @@ function TradingHistoricTable() {
 }
 
 // ── Trading Tab ───────────────────────────────────────────────────────────────
-// Three sections: Portfolio · Active Trades · Historic Trades
+// Four sections: Portfolio · Active Trades · Historic Trades · Merval
 // Storage keys:
 //   "trading:portfolio"     → current holdings
 //   "trading:active"        → open/active trades
 //   "trading:historic"      → closed operations
+//   "trading:merval"        → acciones argentinas (Homebroker)
+
+const MERVAL_COLOR = "#38bdf8"; // mismo celeste que usa "Merval" en toda la app
+
+function emptyMervalRow() {
+  return {
+    id: `mv${Date.now()}${Math.floor(Math.random()*1000)}`,
+    ticker: "", fecha: "", cantidad: "", precioCompra: "", ppcActual: "",
+    status: "Open", // "Open" | "Closed" — decisión manual del usuario
+  };
+}
+
+// Total PPC (compra) y Precio Actual (cierre) son ambos Cantidad × precio unitario.
+// Dif. $ = Precio Actual − Total PPC (ambos ya en la misma unidad: valor total de la posición)
+function calcMervalRow(row) {
+  const cant = parseFloat(row.cantidad) || 0;
+  const pCompra = parseFloat(row.precioCompra) || 0;
+  const ppcActual = parseFloat(row.ppcActual) || 0;
+  if (!cant || !pCompra) return { totalPPC: null, precioActualTotal: null, difMonto: null, difPct: null, resultado: null };
+  const totalPPC = cant * pCompra;
+  const precioActualTotal = ppcActual ? cant * ppcActual : null;
+  const difMonto = precioActualTotal !== null ? precioActualTotal - totalPPC : null;
+  const difPct = (difMonto !== null && totalPPC > 0) ? (difMonto / totalPPC) * 100 : null;
+  const resultado = difMonto === null ? null : difMonto > 0 ? "Win" : difMonto < 0 ? "Loss" : null;
+  return { totalPPC, precioActualTotal, difMonto, difPct, resultado };
+}
+
+function MervalTradingTable() {
+  const [rows, setRows] = React.useState(() => {
+    const saved = loadTrading("merval");
+    return saved.length ? saved : [emptyMervalRow()];
+  });
+
+  React.useEffect(() => { saveTrading("merval", rows); }, [rows]);
+
+  function updateRow(id, field, value) {
+    setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
+  }
+  function addRow() { setRows(prev => [...prev, emptyMervalRow()]); }
+  function removeRow(id) { setRows(prev => prev.filter(r => r.id !== id)); }
+
+  // Ordenamiento — display-only, no reordena lo guardado en localStorage
+  const [sortKey, setSortKey] = React.useState(null); // null | "fecha" | "precioActual" | "dif" | "status"
+  const [sortDir, setSortDir] = React.useState("desc");
+
+  function toggleSort(key, defaultDir = "desc") {
+    if (sortKey === key) setSortDir(d => d === "desc" ? "asc" : "desc");
+    else { setSortKey(key); setSortDir(defaultDir); }
+  }
+
+  const displayRows = sortKey ? [...rows].sort((a, b) => {
+    if (sortKey === "fecha" || sortKey === "status") {
+      const av = (a[sortKey] || "").toLowerCase();
+      const bv = (b[sortKey] || "").toLowerCase();
+      if (av < bv) return sortDir === "asc" ? -1 : 1;
+      if (av > bv) return sortDir === "asc" ? 1 : -1;
+      return 0;
+    }
+    // numérico: "precioActual" (Precio Actual) | "dif" (Dif. $)
+    const av = sortKey === "precioActual" ? (calcMervalRow(a).precioActualTotal ?? -Infinity) : (calcMervalRow(a).difMonto ?? -Infinity);
+    const bv = sortKey === "precioActual" ? (calcMervalRow(b).precioActualTotal ?? -Infinity) : (calcMervalRow(b).difMonto ?? -Infinity);
+    return sortDir === "desc" ? bv - av : av - bv;
+  }) : rows;
+
+  const inpSt = {
+    background: "transparent", border: "none", outline: "none",
+    color: C.text, fontFamily: "'DM Mono',monospace",
+    fontSize: 12, padding: "4px 6px", width: "100%",
+    borderRadius: 6, transition: "background 0.15s",
+  };
+  const thSt = {
+    color: C.textMuted, fontSize: 10, fontWeight: 500,
+    letterSpacing: "0.1em", textTransform: "uppercase",
+    padding: "10px 12px", textAlign: "left",
+    borderBottom: `1px solid ${C.border}`,
+    fontFamily: "'DM Mono',monospace", whiteSpace: "nowrap",
+    background: C.surface,
+  };
+  const tdSt = {
+    padding: "8px 12px", borderBottom: `1px solid ${C.border}`,
+    verticalAlign: "middle", fontSize: 13,
+  };
+
+  // ── Estadísticas del header (W/L y Open/Close) ──────────────────────────────
+  const withResult = rows.map(r => ({ row: r, ...calcMervalRow(r) }));
+  const wins   = withResult.filter(r => r.resultado === "Win").length;
+  const losses = withResult.filter(r => r.resultado === "Loss").length;
+  const wlPct  = (wins + losses) > 0 ? (wins / (wins + losses)) * 100 : null;
+  const opens  = rows.filter(r => r.status === "Open" && r.ticker).length;
+  const closeds= rows.filter(r => r.status === "Closed" && r.ticker).length;
+  const opsAbPct = (opens + closeds) > 0 ? (opens / (opens + closeds)) * 100 : null;
+
+  const totalDif = withResult.reduce((s, r) => s + (r.difMonto || 0), 0);
+  const hasAnyData = rows.some(r => r.ticker);
+
+  const today = new Date().toLocaleDateString("es-AR");
+
+  return (
+    <div>
+      {/* Header stats bar — Fecha hoy · W/L · Open/Close */}
+      <div style={{ display: "flex", alignItems: "center", gap: 24, padding: "14px 20px", borderBottom: `1px solid ${C.border}`, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 3 }}>Fecha hoy</div>
+          <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 13, color: C.text, fontWeight: 600 }}>{today}</div>
+        </div>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <StatPill label="W" value={wins} color={C.green} />
+          <StatPill label="L" value={losses} color={C.red} />
+          <StatPill label="W/L %" value={wlPct !== null ? `${fmt(wlPct, 0)}%` : "—"} color={wlPct !== null && wlPct >= 50 ? C.green : C.red} filled />
+        </div>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <StatPill label="Open" value={opens} color={C.green} />
+          <StatPill label="Close" value={closeds} color={C.textSub} />
+          <StatPill label="Ops. Ab. %" value={opsAbPct !== null ? `${fmt(opsAbPct, 0)}%` : "—"} color={C.red} filled />
+        </div>
+      </div>
+
+      {/* Toolbar */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 20px", borderBottom: `1px solid ${C.border}`, flexWrap: "wrap", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {rows.filter(r => r.ticker).length > 0 && (
+            <span style={{
+              background: `${MERVAL_COLOR}18`, color: MERVAL_COLOR,
+              fontFamily: "'DM Mono',monospace", fontSize: 10, fontWeight: 600,
+              padding: "2px 8px", borderRadius: 99,
+            }}>{rows.filter(r => r.ticker).length} operaciones</span>
+          )}
+        </div>
+        <button onClick={addRow} style={{
+          background: `${MERVAL_COLOR}14`, border: `1px solid ${MERVAL_COLOR}44`,
+          color: MERVAL_COLOR, fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 600,
+          padding: "7px 16px", cursor: "pointer", borderRadius: 9, transition: "all 0.2s",
+        }}
+          onMouseEnter={e => e.currentTarget.style.background = `${MERVAL_COLOR}28`}
+          onMouseLeave={e => e.currentTarget.style.background = `${MERVAL_COLOR}14`}
+        >+ Agregar fila</button>
+      </div>
+
+      {/* Table */}
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 980 }}>
+          <thead>
+            <tr>
+              <th style={{ ...thSt, width: 90 }}>Ticker</th>
+              <th style={{ ...thSt, width: 90 }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
+                  Fecha
+                  <SortButton active={sortKey==="fecha"} dir={sortDir} onClick={()=>toggleSort("fecha","asc")}/>
+                </span>
+              </th>
+              <th style={{ ...thSt, width: 90, textAlign: "right" }}>Cantidad</th>
+              <th style={{ ...thSt, width: 110, textAlign: "right" }}>$ Compra/PPC</th>
+              <th style={{ ...thSt, width: 120, textAlign: "right" }}>Total PPC</th>
+              <th style={{ ...thSt, width: 110, textAlign: "right" }}>PPC Actual</th>
+              <th style={{ ...thSt, width: 120, textAlign: "right" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "flex-end", gap: 2 }}>
+                  Precio Actual
+                  <SortButton active={sortKey==="precioActual"} dir={sortDir} onClick={()=>toggleSort("precioActual","desc")}/>
+                </span>
+              </th>
+              <th style={{ ...thSt, width: 120, textAlign: "right" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "flex-end", gap: 2 }}>
+                  Dif. $
+                  <SortButton active={sortKey==="dif"} dir={sortDir} onClick={()=>toggleSort("dif","desc")}/>
+                </span>
+              </th>
+              <th style={{ ...thSt, width: 80, textAlign: "right" }}>%</th>
+              <th style={{ ...thSt, width: 90, textAlign: "center" }}>W/L</th>
+              <th style={{ ...thSt, width: 100, textAlign: "center" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 2 }}>
+                  Status
+                  <SortButton active={sortKey==="status"} dir={sortDir} onClick={()=>toggleSort("status","asc")}/>
+                </span>
+              </th>
+              <th style={{ ...thSt, width: 40 }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 && (
+              <tr><td colSpan={12} style={{ ...tdSt, textAlign: "center", color: C.textMuted, padding: 36 }}>
+                Sin operaciones · Hacé clic en "+ Agregar fila"
+              </td></tr>
+            )}
+            {displayRows.map(row => {
+              const { totalPPC, precioActualTotal, difMonto, difPct, resultado } = calcMervalRow(row);
+              return (
+                <tr key={row.id}
+                  onMouseEnter={e => e.currentTarget.style.background = C.cardHover}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                  style={{ transition: "background 0.12s" }}
+                >
+                  <td style={tdSt}>
+                    <input value={row.ticker} onChange={e => updateRow(row.id, "ticker", e.target.value.toUpperCase())}
+                      placeholder="—" style={{ ...inpSt, fontWeight: 700, color: MERVAL_COLOR, letterSpacing: "0.05em", width: 68 }}
+                      onFocus={e => e.target.style.background = `${MERVAL_COLOR}12`}
+                      onBlur={e => e.target.style.background = "transparent"}
+                    />
+                  </td>
+                  <td style={tdSt}>
+                    <input value={row.fecha} onChange={e => updateRow(row.id, "fecha", e.target.value)}
+                      placeholder="dd/mm" style={{ ...inpSt, width: 70 }}
+                      onFocus={e => e.target.style.background = C.surface}
+                      onBlur={e => e.target.style.background = "transparent"}
+                    />
+                  </td>
+                  <td style={{ ...tdSt, textAlign: "right" }}>
+                    <input value={row.cantidad} onChange={e => updateRow(row.id, "cantidad", e.target.value)}
+                      placeholder="0" type="text" inputMode="decimal" style={{ ...inpSt, textAlign: "right", width: 70 }}
+                      onFocus={e => e.target.style.background = C.surface}
+                      onBlur={e => e.target.style.background = "transparent"}
+                    />
+                  </td>
+                  <td style={{ ...tdSt, textAlign: "right" }}>
+                    <input value={row.precioCompra} onChange={e => updateRow(row.id, "precioCompra", e.target.value)}
+                      placeholder="0.00" type="text" inputMode="decimal" style={{ ...inpSt, textAlign: "right", width: 90 }}
+                      onFocus={e => e.target.style.background = C.surface}
+                      onBlur={e => e.target.style.background = "transparent"}
+                    />
+                  </td>
+                  <td style={{ ...tdSt, textAlign: "right", background: `${MERVAL_COLOR}06` }}>
+                    <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 12, color: C.textSub, fontStyle: "italic" }}>
+                      {totalPPC !== null ? fmt(totalPPC) : "—"}
+                    </span>
+                  </td>
+                  <td style={{ ...tdSt, textAlign: "right" }}>
+                    <input value={row.ppcActual} onChange={e => updateRow(row.id, "ppcActual", e.target.value)}
+                      placeholder="0.00" type="text" inputMode="decimal" style={{ ...inpSt, textAlign: "right", width: 90 }}
+                      onFocus={e => e.target.style.background = C.surface}
+                      onBlur={e => e.target.style.background = "transparent"}
+                    />
+                  </td>
+                  <td style={{ ...tdSt, textAlign: "right", background: `${MERVAL_COLOR}06` }}>
+                    <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 12, color: C.textSub, fontStyle: "italic" }}>
+                      {precioActualTotal !== null ? fmt(precioActualTotal) : "—"}
+                    </span>
+                  </td>
+                  <td style={{ ...tdSt, textAlign: "right" }}>
+                    {difMonto !== null
+                      ? <span style={{ color: pnlColor(difMonto), fontWeight: 600, fontFamily: "'DM Mono',monospace", fontSize: 12 }}>{difMonto > 0 ? "+" : ""}{fmt(difMonto)}</span>
+                      : <span style={{ color: C.textMuted }}>—</span>}
+                  </td>
+                  <td style={{ ...tdSt, textAlign: "right" }}>
+                    {difPct !== null
+                      ? <span style={{ color: pnlColor(difPct), fontWeight: 600, fontFamily: "'DM Mono',monospace", fontSize: 12 }}>{difPct > 0 ? "+" : ""}{fmt(difPct, 2)}%</span>
+                      : <span style={{ color: C.textMuted }}>—</span>}
+                  </td>
+                  <td style={{ ...tdSt, textAlign: "center" }}>
+                    {resultado ? <Badge color={resultado === "Win" ? C.green : C.red}>{resultado}</Badge> : <span style={{ color: C.textMuted }}>—</span>}
+                  </td>
+                  <td style={{ ...tdSt, textAlign: "center" }}>
+                    <select value={row.status} onChange={e => updateRow(row.id, "status", e.target.value)}
+                      style={{
+                        ...inpSt, textAlign: "center", cursor: "pointer", appearance: "none", WebkitAppearance: "none",
+                        color: row.status === "Open" ? "#60a5fa" : C.textMuted, fontWeight: 600,
+                      }}
+                      onFocus={e => e.target.style.background = `${MERVAL_COLOR}12`}
+                      onBlur={e => e.target.style.background = "transparent"}
+                    >
+                      <option value="Open">Open</option>
+                      <option value="Closed">Closed</option>
+                    </select>
+                  </td>
+                  <td style={{ ...tdSt, textAlign: "center" }}>
+                    <button onClick={() => removeRow(row.id)} style={{
+                      background: "transparent", border: "none", color: C.textMuted, cursor: "pointer",
+                      fontSize: 16, padding: "2px 6px", lineHeight: 1, borderRadius: 6, transition: "all 0.18s",
+                    }}
+                      onMouseEnter={e => { e.currentTarget.style.color = C.red; e.currentTarget.style.background = C.redBg; }}
+                      onMouseLeave={e => { e.currentTarget.style.color = C.textMuted; e.currentTarget.style.background = "transparent"; }}
+                    >×</button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+          {/* Totals footer */}
+          {hasAnyData && (
+            <tfoot>
+              <tr style={{ background: `${MERVAL_COLOR}0c` }}>
+                <td colSpan={7} style={{ padding: "10px 12px", borderTop: `2px solid ${MERVAL_COLOR}40`, fontFamily: "'DM Sans',sans-serif", fontWeight: 700, fontSize: 12, color: MERVAL_COLOR }}>
+                  Total
+                </td>
+                <td style={{ padding: "10px 12px", borderTop: `2px solid ${MERVAL_COLOR}40`, textAlign: "right", fontFamily: "'DM Mono',monospace", fontSize: 12, fontWeight: 700, color: pnlColor(totalDif) }}>
+                  {totalDif > 0 ? "+" : ""}{fmt(totalDif)}
+                </td>
+                <td colSpan={4} style={{ borderTop: `2px solid ${MERVAL_COLOR}40` }} />
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// Small stat pill for the Merval header bar (W/L, Open/Close counts)
+function StatPill({ label, value, color, filled }) {
+  return (
+    <div style={{
+      display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
+      padding: filled ? "6px 14px" : "4px 10px",
+      background: filled ? `${color}20` : "transparent",
+      border: `1px solid ${filled ? color + "50" : C.border}`,
+      borderRadius: 8, minWidth: 52,
+    }}>
+      <span style={{ fontSize: 9, color: C.textMuted, textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</span>
+      <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 13, fontWeight: 700, color }}>{value}</span>
+    </div>
+  );
+}
 
 const TRADING_ACCENT = "#06b6d4"; // cyan
 
@@ -3349,18 +3673,21 @@ const TRADING_SECTIONS = [
   { key: "portfolio", label: "Portafolio Actual",    icon: "📋", color: "#06b6d4" },
   { key: "active",    label: "Operaciones Activas",  icon: "⚡", color: "#f59e0b" },
   { key: "historic",  label: "Histórico de Trades",  icon: "🗂",  color: "#a78bfa" },
+  { key: "merval",    label: "Merval",               icon: "📈", color: "#38bdf8" },
 ];
 
 const TRADING_SUBTITLES = {
   portfolio: "Posiciones actuales · holdings vigentes",
   active:    "Operaciones abiertas · trades en curso",
   historic:  "Operaciones cerradas · historial completo",
+  merval:    "Acciones argentinas · Homebroker",
 };
 
 const TRADING_BODIES = {
   portfolio: TradingPortfolioTable,
   active:    TradingActiveTable,
   historic:  TradingHistoricTable,
+  merval:    MervalTradingTable,
 };
 
 function TradingView() {
