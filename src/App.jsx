@@ -83,9 +83,13 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, LineChart, Line, XAx
 //       Actual, Dif. $ y Status — Fecha/Status alfabético, Precio Actual/Dif. $
 //       numérico. Ícono de la solapa cambiado de 🇦🇷 a 📈, el mismo emoji que
 //       ya usa "Merval" en la solapa Portfolio (misma identidad visual)
+// v2.31 Trading: nueva sección "Watchlist", ubicada entre Portafolio Actual y
+//       Operaciones Activas. 5 columnas de texto libre sin cálculos (Monitor,
+//       Buy, Comment, Preferred, QQQ Top Holdings), cada una una lista
+//       independiente por fila — sin relación entre columnas de una misma fila
 // ─────────────────────────────────────────────────────────────────────────────
-const APP_VERSION = "2.30";
-const APP_BUILD   = new Date("2026-07-08").toISOString().slice(0,10);
+const APP_VERSION = "2.31";
+const APP_BUILD   = new Date("2026-07-09").toISOString().slice(0,10);
 
 
 const FONTS = `
@@ -3669,15 +3673,133 @@ function StatPill({ label, value, color, filled }) {
 
 const TRADING_ACCENT = "#06b6d4"; // cyan
 
+// ── Watchlist — 5 columnas de texto libre, sin cálculos, sin cargo de datos ──
+// Cada fila es independiente por columna (no hay relación entre "Monitor",
+// "Buy", "Comment", "Preferred" y "QQQ Top Holdings" en una misma fila — son
+// 5 listas paralelas, tal como en la captura de referencia).
+const WATCHLIST_COLOR = "#f472b6";
+
+function emptyWatchlistRow() {
+  return { id: `wl${Date.now()}${Math.floor(Math.random()*1000)}`, monitor: "", buy: "", comment: "", preferred: "", qqq: "" };
+}
+
+function WatchlistTable() {
+  const [rows, setRows] = React.useState(() => {
+    const saved = loadTrading("watchlist");
+    return saved.length ? saved : Array.from({ length: 6 }, emptyWatchlistRow);
+  });
+
+  React.useEffect(() => { saveTrading("watchlist", rows); }, [rows]);
+
+  function updateRow(id, field, value) {
+    setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
+  }
+  function addRow() { setRows(prev => [...prev, emptyWatchlistRow()]); }
+  function removeRow(id) { setRows(prev => prev.filter(r => r.id !== id)); }
+
+  const inpSt = {
+    background: "transparent", border: "none", outline: "none",
+    color: C.text, fontFamily: "'DM Mono',monospace",
+    fontSize: 12, padding: "4px 6px", width: "100%",
+    borderRadius: 6, transition: "background 0.15s", textAlign: "center",
+  };
+  const thSt = {
+    color: C.textMuted, fontSize: 10, fontWeight: 500,
+    letterSpacing: "0.1em", textTransform: "uppercase",
+    padding: "10px 12px", textAlign: "center",
+    borderBottom: `1px solid ${C.border}`,
+    fontFamily: "'DM Mono',monospace", whiteSpace: "nowrap",
+    background: C.surface,
+  };
+  const tdSt = {
+    padding: "8px 12px", borderBottom: `1px solid ${C.border}`,
+    verticalAlign: "middle", fontSize: 13,
+  };
+
+  const COLUMNS = [
+    { field: "monitor",   label: "Monitor" },
+    { field: "buy",       label: "Buy" },
+    { field: "comment",   label: "Comment" },
+    { field: "preferred", label: "Preferred" },
+    { field: "qqq",       label: "QQQ Top Holdings" },
+  ];
+
+  return (
+    <div>
+      {/* Toolbar */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 20px", borderBottom: `1px solid ${C.border}` }}>
+        <span style={{ fontSize: 11, color: C.textMuted }}>Campos de texto libre — sin cálculos, solo referencia manual</span>
+        <button onClick={addRow} style={{
+          background: `${WATCHLIST_COLOR}14`, border: `1px solid ${WATCHLIST_COLOR}44`,
+          color: WATCHLIST_COLOR, fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 600,
+          padding: "7px 16px", cursor: "pointer", borderRadius: 9, transition: "all 0.2s",
+        }}
+          onMouseEnter={e => e.currentTarget.style.background = `${WATCHLIST_COLOR}28`}
+          onMouseLeave={e => e.currentTarget.style.background = `${WATCHLIST_COLOR}14`}
+        >+ Agregar fila</button>
+      </div>
+
+      {/* Table */}
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 780 }}>
+          <thead>
+            <tr>
+              {COLUMNS.map(c => (
+                <th key={c.field} style={{ ...thSt, width: c.field === "comment" ? 220 : 140 }}>{c.label}</th>
+              ))}
+              <th style={{ ...thSt, width: 40 }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 && (
+              <tr><td colSpan={6} style={{ ...tdSt, textAlign: "center", color: C.textMuted, padding: 36 }}>
+                Sin filas · Hacé clic en "+ Agregar fila"
+              </td></tr>
+            )}
+            {rows.map(row => (
+              <tr key={row.id}
+                onMouseEnter={e => e.currentTarget.style.background = C.cardHover}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                style={{ transition: "background 0.12s" }}
+              >
+                {COLUMNS.map(c => (
+                  <td key={c.field} style={tdSt}>
+                    <input value={row[c.field]} onChange={e => updateRow(row.id, c.field, e.target.value)}
+                      placeholder="—" style={inpSt}
+                      onFocus={e => e.target.style.background = `${WATCHLIST_COLOR}12`}
+                      onBlur={e => e.target.style.background = "transparent"}
+                    />
+                  </td>
+                ))}
+                <td style={{ ...tdSt, textAlign: "center" }}>
+                  <button onClick={() => removeRow(row.id)} style={{
+                    background: "transparent", border: "none", color: C.textMuted, cursor: "pointer",
+                    fontSize: 16, padding: "2px 6px", lineHeight: 1, borderRadius: 6, transition: "all 0.18s",
+                  }}
+                    onMouseEnter={e => { e.currentTarget.style.color = C.red; e.currentTarget.style.background = C.redBg; }}
+                    onMouseLeave={e => { e.currentTarget.style.color = C.textMuted; e.currentTarget.style.background = "transparent"; }}
+                  >×</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 const TRADING_SECTIONS = [
-  { key: "portfolio", label: "Portafolio Actual",    icon: "📋", color: "#06b6d4" },
-  { key: "active",    label: "Operaciones Activas",  icon: "⚡", color: "#f59e0b" },
-  { key: "historic",  label: "Histórico de Trades",  icon: "🗂",  color: "#a78bfa" },
-  { key: "merval",    label: "Merval",               icon: "📈", color: "#38bdf8" },
+  { key: "portfolio",  label: "Portafolio Actual",    icon: "📋", color: "#06b6d4" },
+  { key: "watchlist",  label: "Watchlist",             icon: "👁️", color: "#f472b6" },
+  { key: "active",     label: "Operaciones Activas",  icon: "⚡", color: "#f59e0b" },
+  { key: "historic",   label: "Histórico de Trades",  icon: "🗂",  color: "#a78bfa" },
+  { key: "merval",     label: "Merval",               icon: "📈", color: "#38bdf8" },
 ];
 
 const TRADING_SUBTITLES = {
   portfolio: "Posiciones actuales · holdings vigentes",
+  watchlist: "Seguimiento manual · research antes de operar",
   active:    "Operaciones abiertas · trades en curso",
   historic:  "Operaciones cerradas · historial completo",
   merval:    "Acciones argentinas · Homebroker",
@@ -3685,6 +3807,7 @@ const TRADING_SUBTITLES = {
 
 const TRADING_BODIES = {
   portfolio: TradingPortfolioTable,
+  watchlist: WatchlistTable,
   active:    TradingActiveTable,
   historic:  TradingHistoricTable,
   merval:    MervalTradingTable,
