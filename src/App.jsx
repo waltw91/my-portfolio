@@ -87,8 +87,15 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, LineChart, Line, XAx
 //       Operaciones Activas. 5 columnas de texto libre sin cálculos (Monitor,
 //       Buy, Comment, Preferred, QQQ Top Holdings), cada una una lista
 //       independiente por fila — sin relación entre columnas de una misma fila
+// v2.32 Trading: (1) Operaciones Activas e Histórico ahora se pueden ordenar
+//       por F. Compra (cronológico, dd/mm/yyyy), P/L % ARS y P/L % USD.
+//       (2) Header "PPC Actual" en Merval ahora en negrita.
+//       (3) Portafolio Actual: eliminada la columna "Target" para darle más
+//       espacio a Empresa/Sector (Sector ensanchado 150→190px).
+//       (4) Portafolio Actual: agregado el promedio de Beta en Totales,
+//       junto a Monto y % (solo promedia filas con Beta cargado)
 // ─────────────────────────────────────────────────────────────────────────────
-const APP_VERSION = "2.31";
+const APP_VERSION = "2.32";
 const APP_BUILD   = new Date("2026-07-09").toISOString().slice(0,10);
 
 
@@ -2462,6 +2469,10 @@ function TradingPortfolioTable() {
   }
   const totalPercent = rows.reduce((s, r) => s + pctOf(r), 0); // ≈100 si hay algún monto cargado
 
+  // Promedio de Beta — solo sobre las filas que tienen un valor cargado
+  const betaRows = rows.filter(r => r.beta !== "" && r.beta !== undefined && !isNaN(parseFloat(r.beta)));
+  const avgBeta = betaRows.length > 0 ? betaRows.reduce((s, r) => s + parseFloat(r.beta), 0) / betaRows.length : null;
+
   // Filas ordenadas para mostrar (no reordena lo guardado en localStorage)
   const displayRows = React.useMemo(() => {
     if (!sortField) return rows;
@@ -2580,18 +2591,17 @@ function TradingPortfolioTable() {
               <th style={{ ...thSt             }}>Empresa</th>
               <th style={{ ...thSt, width: 110 }}>Mercado</th>
               <th style={{ ...thSt, width: 70, textAlign: "right" }}>Beta</th>
-              <th style={{ ...thSt, width: 150 }}>Sector</th>
+              <th style={{ ...thSt, width: 190 }}>Sector</th>
               <th style={{ ...thSt, width: 100 }}>Tipo</th>
               <th style={{ ...thSt, width: 100 }}>Strategy</th>
               <th style={{ ...thSt, width: 110, textAlign: "right" }}>Monto</th>
               <th style={{ ...thSt, width: 90,  textAlign: "right" }} title="Calculado automáticamente sobre el total del portafolio">%</th>
-              <th style={{ ...thSt, width: 90,  textAlign: "right" }}>Target</th>
               <th style={{ ...thSt, width: 40  }}></th>
             </tr>
           </thead>
           <tbody>
             {displayRows.length === 0 && (
-              <tr><td colSpan={11} style={{ ...tdSt, textAlign: "center", color: C.textMuted, padding: 36 }}>
+              <tr><td colSpan={10} style={{ ...tdSt, textAlign: "center", color: C.textMuted, padding: 36 }}>
                 Sin posiciones. Hacé clic en &quot;+ Agregar posición&quot;.
               </td></tr>
             )}
@@ -2661,15 +2671,6 @@ function TradingPortfolioTable() {
                     {row.amount ? `${fmt(pctOf(row), 1)}%` : "—"}
                   </span>
                 </td>
-                {/* Target */}
-                <td style={{ ...tdSt, textAlign: "right" }}>
-                  <input value={row.target} onChange={e => updateRow(row.id, "target", e.target.value)}
-                    placeholder="0%" type="text" inputMode="decimal"
-                    style={{ ...inpSt, textAlign: "right", width: 60 }}
-                    onFocus={e => e.target.style.background = C.surface}
-                    onBlur={e  => e.target.style.background = "transparent"}
-                  />
-                </td>
                 {/* Delete */}
                 <td style={{ ...tdSt, textAlign: "center" }}>
                   <button onClick={() => removeRow(row.id)} style={{
@@ -2688,16 +2689,20 @@ function TradingPortfolioTable() {
           {rows.some(r => r.amount) && (
             <tfoot>
               <tr style={{ background: `${COLOR}0c` }}>
-                <td colSpan={7} style={{ padding: "10px 12px", borderTop: `2px solid ${COLOR}40`, fontFamily: "'DM Sans',sans-serif", fontWeight: 700, fontSize: 12, color: COLOR }}>
+                <td colSpan={3} style={{ padding: "10px 12px", borderTop: `2px solid ${COLOR}40`, fontFamily: "'DM Sans',sans-serif", fontWeight: 700, fontSize: 12, color: COLOR }}>
                   Totales
                 </td>
+                <td style={{ padding: "10px 12px", borderTop: `2px solid ${COLOR}40`, textAlign: "right", fontFamily: "'DM Mono',monospace", fontSize: 12, fontWeight: 700, color: colorForBeta(avgBeta) }}>
+                  {avgBeta !== null ? fmt(avgBeta, 2) : "—"}
+                </td>
+                <td colSpan={3} style={{ borderTop: `2px solid ${COLOR}40` }} />
                 <td style={{ padding: "10px 12px", borderTop: `2px solid ${COLOR}40`, textAlign: "right", fontFamily: "'DM Mono',monospace", fontSize: 12, fontWeight: 700, color: C.text }}>
                   {totalAmount > 0 ? fmt(totalAmount) : "—"}
                 </td>
                 <td style={{ padding: "10px 12px", borderTop: `2px solid ${COLOR}40`, textAlign: "right", fontFamily: "'DM Mono',monospace", fontSize: 12, fontWeight: 700, color: Math.round(totalPercent) === 100 ? C.green : C.amber }}>
                   {totalPercent > 0 ? fmt(totalPercent, 1) + "%" : "—"}
                 </td>
-                <td colSpan={2} style={{ borderTop: `2px solid ${COLOR}40` }} />
+                <td style={{ borderTop: `2px solid ${COLOR}40` }} />
               </tr>
             </tfoot>
           )}
@@ -2826,6 +2831,29 @@ function TradingActiveTable() {
     setRows(prev => prev.filter(r => r.id !== row.id));
   }
 
+  // Ordenamiento — display-only, no reordena lo guardado en localStorage
+  const [sortKey, setSortKey] = React.useState(null); // null | "fecha" | "plARS" | "plUSD"
+  const [sortDir, setSortDir] = React.useState("desc");
+  function toggleSort(key, defaultDir = "desc") {
+    if (sortKey === key) setSortDir(d => d === "desc" ? "asc" : "desc");
+    else { setSortKey(key); setSortDir(defaultDir); }
+  }
+  // F. Compra tiene año completo (dd/mm/yyyy) — se puede ordenar cronológicamente de verdad
+  function parseFechaCompra(str) {
+    if (!str) return null;
+    const parts = str.split("/");
+    if (parts.length !== 3) return null;
+    const d = new Date(`${parts[2]}-${parts[1].padStart(2,"0")}-${parts[0].padStart(2,"0")}`);
+    return isNaN(d) ? null : d.getTime();
+  }
+  const displayRows = sortKey ? [...rows].sort((a, b) => {
+    let av, bv;
+    if (sortKey === "fecha") { av = parseFechaCompra(a.fechaCompra) ?? -Infinity; bv = parseFechaCompra(b.fechaCompra) ?? -Infinity; }
+    else if (sortKey === "plARS") { av = calc(a).plPctARS ?? -Infinity; bv = calc(b).plPctARS ?? -Infinity; }
+    else { av = calc(a).plPctUSD ?? -Infinity; bv = calc(b).plPctUSD ?? -Infinity; }
+    return sortDir === "desc" ? bv - av : av - bv;
+  }) : rows;
+
   // Calculations per row
   function calc(row) {
     const cant          = parseFloat(row.cant)            || 0;
@@ -2953,14 +2981,29 @@ function TradingActiveTable() {
             <tr>
               <th style={{...thSt,width:80}}>Activo</th>
               <th style={{...thSt,width:70,textAlign:"right"}}>Cant.</th>
-              <th style={{...thSt,width:110}}>F. Compra</th>
+              <th style={{...thSt,width:110}}>
+                <span style={{display:"inline-flex",alignItems:"center",gap:2}}>
+                  F. Compra
+                  <SortButton active={sortKey==="fecha"} dir={sortDir} onClick={()=>toggleSort("fecha","desc")}/>
+                </span>
+              </th>
               <th style={{...thSt,width:120,textAlign:"right",color:C.green}}>P. Compra ARS</th>
               <th style={{...thSt,width:120,textAlign:"right",color:C.green}}>MEP Prom. Compra</th>
               <th style={{...thSt,width:110,textAlign:"right",color:C.green}}>P. en USD</th>
               <th style={{...thSt,width:120,textAlign:"right",color:COLOR}}>P. Actual ARS</th>
               <th style={{...thSt,width:110,textAlign:"right",color:COLOR}}>P. Actual USD</th>
-              <th style={{...thSt,width:90,textAlign:"right"}}>P/L % ARS</th>
-              <th style={{...thSt,width:90,textAlign:"right"}}>P/L % USD</th>
+              <th style={{...thSt,width:90,textAlign:"right"}}>
+                <span style={{display:"inline-flex",alignItems:"center",justifyContent:"flex-end",gap:2}}>
+                  P/L % ARS
+                  <SortButton active={sortKey==="plARS"} dir={sortDir} onClick={()=>toggleSort("plARS","desc")}/>
+                </span>
+              </th>
+              <th style={{...thSt,width:90,textAlign:"right"}}>
+                <span style={{display:"inline-flex",alignItems:"center",justifyContent:"flex-end",gap:2}}>
+                  P/L % USD
+                  <SortButton active={sortKey==="plUSD"} dir={sortDir} onClick={()=>toggleSort("plUSD","desc")}/>
+                </span>
+              </th>
               <th style={{...thSt,width:80,textAlign:"right"}}>Días</th>
               <th style={{...thSt,width:80,color:"#a78bfa"}}>Cerrar</th>
               <th style={{...thSt,width:40}}></th>
@@ -2972,7 +3015,7 @@ function TradingActiveTable() {
                 Sin operaciones activas.
               </td></tr>
             )}
-            {rows.map(row => {
+            {displayRows.map(row => {
               const { precioCompraUSD, precioActualUSD, plPctARS, plPctUSD, diasTenencia } = calc(row);
               return (
                 <tr key={row.id}
@@ -3139,6 +3182,28 @@ function TradingHistoricTable() {
     return { precioCompraUSD, precioCierreUSD, plPctARS, plPctUSD };
   }
 
+  // Ordenamiento — display-only, no reordena lo guardado en localStorage
+  const [sortKey, setSortKey] = React.useState(null); // null | "fecha" | "plARS" | "plUSD"
+  const [sortDir, setSortDir] = React.useState("desc");
+  function toggleSort(key, defaultDir = "desc") {
+    if (sortKey === key) setSortDir(d => d === "desc" ? "asc" : "desc");
+    else { setSortKey(key); setSortDir(defaultDir); }
+  }
+  function parseFechaCompra(str) {
+    if (!str) return null;
+    const parts = str.split("/");
+    if (parts.length !== 3) return null;
+    const d = new Date(`${parts[2]}-${parts[1].padStart(2,"0")}-${parts[0].padStart(2,"0")}`);
+    return isNaN(d) ? null : d.getTime();
+  }
+  const displayRows = sortKey ? [...rows].sort((a, b) => {
+    let av, bv;
+    if (sortKey === "fecha") { av = parseFechaCompra(a.fechaCompra) ?? -Infinity; bv = parseFechaCompra(b.fechaCompra) ?? -Infinity; }
+    else if (sortKey === "plARS") { av = calcHistoric(a).plPctARS ?? -Infinity; bv = calcHistoric(b).plPctARS ?? -Infinity; }
+    else { av = calcHistoric(a).plPctUSD ?? -Infinity; bv = calcHistoric(b).plPctUSD ?? -Infinity; }
+    return sortDir === "desc" ? bv - av : av - bv;
+  }) : rows;
+
   const inpSt = {
     background: "transparent", border: "none", outline: "none",
     color: C.text, fontFamily: "'DM Mono',monospace",
@@ -3221,7 +3286,12 @@ function TradingHistoricTable() {
               <tr>
                 <th style={{...thSt,width:80}}>Activo</th>
                 <th style={{...thSt,width:70,textAlign:"right"}}>Cant.</th>
-                <th style={{...thSt,width:110}}>F. Compra</th>
+                <th style={{...thSt,width:110}}>
+                  <span style={{display:"inline-flex",alignItems:"center",gap:2}}>
+                    F. Compra
+                    <SortButton active={sortKey==="fecha"} dir={sortDir} onClick={()=>toggleSort("fecha","desc")}/>
+                  </span>
+                </th>
                 <th style={{...thSt,width:120,textAlign:"right",color:C.green}}>P. Compra ARS</th>
                 <th style={{...thSt,width:120,textAlign:"right",color:C.green}}>MEP Prom. Compra</th>
                 <th style={{...thSt,width:110,textAlign:"right",color:C.green}}>P. en USD</th>
@@ -3229,14 +3299,24 @@ function TradingHistoricTable() {
                 <th style={{...thSt,width:110,textAlign:"right",color:COLOR}}>MEP Cierre</th>
                 <th style={{...thSt,width:110,textAlign:"right",color:COLOR}}>P. Cierre USD</th>
                 <th style={{...thSt,width:110}}>F. Cierre</th>
-                <th style={{...thSt,width:90,textAlign:"right"}}>P/L % ARS</th>
-                <th style={{...thSt,width:90,textAlign:"right"}}>P/L % USD</th>
+                <th style={{...thSt,width:90,textAlign:"right"}}>
+                  <span style={{display:"inline-flex",alignItems:"center",justifyContent:"flex-end",gap:2}}>
+                    P/L % ARS
+                    <SortButton active={sortKey==="plARS"} dir={sortDir} onClick={()=>toggleSort("plARS","desc")}/>
+                  </span>
+                </th>
+                <th style={{...thSt,width:90,textAlign:"right"}}>
+                  <span style={{display:"inline-flex",alignItems:"center",justifyContent:"flex-end",gap:2}}>
+                    P/L % USD
+                    <SortButton active={sortKey==="plUSD"} dir={sortDir} onClick={()=>toggleSort("plUSD","desc")}/>
+                  </span>
+                </th>
                 <th style={{...thSt,width:80,textAlign:"right"}}>Días</th>
                 <th style={{...thSt,width:40}}></th>
               </tr>
             </thead>
             <tbody>
-              {rows.map(row => {
+              {displayRows.map(row => {
                 const { precioCompraUSD, precioCierreUSD, plPctARS, plPctUSD } = calcHistoric(row);
                 return (
                   <tr key={row.id}
@@ -3513,7 +3593,7 @@ function MervalTradingTable() {
               <th style={{ ...thSt, width: 90, textAlign: "right" }}>Cantidad</th>
               <th style={{ ...thSt, width: 110, textAlign: "right" }}>$ Compra/PPC</th>
               <th style={{ ...thSt, width: 120, textAlign: "right" }}>Total PPC</th>
-              <th style={{ ...thSt, width: 110, textAlign: "right" }}>PPC Actual</th>
+              <th style={{ ...thSt, width: 110, textAlign: "right", fontWeight: 800 }}>PPC Actual</th>
               <th style={{ ...thSt, width: 120, textAlign: "right" }}>
                 <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "flex-end", gap: 2 }}>
                   Precio Actual
