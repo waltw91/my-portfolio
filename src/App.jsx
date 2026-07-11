@@ -94,8 +94,12 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, LineChart, Line, XAx
 //       espacio a Empresa/Sector (Sector ensanchado 150→190px).
 //       (4) Portafolio Actual: agregado el promedio de Beta en Totales,
 //       junto a Monto y % (solo promedia filas con Beta cargado)
+// v2.33 Trading → Portafolio Actual: reasignado el ancho de columnas — Ticker
+//       80→60px, Mercado 110→85px, Monto 110→90px (reducidas), Tipo/Strategy
+//       100→125px cada una (ampliadas); Empresa (ancho flexible) también se
+//       beneficia del espacio liberado
 // ─────────────────────────────────────────────────────────────────────────────
-const APP_VERSION = "2.32";
+const APP_VERSION = "2.33";
 const APP_BUILD   = new Date("2026-07-09").toISOString().slice(0,10);
 
 
@@ -2587,14 +2591,14 @@ function TradingPortfolioTable() {
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 980 }}>
           <thead>
             <tr>
-              <th style={{ ...thSt, width: 80  }}>Ticker</th>
+              <th style={{ ...thSt, width: 60  }}>Ticker</th>
               <th style={{ ...thSt             }}>Empresa</th>
-              <th style={{ ...thSt, width: 110 }}>Mercado</th>
+              <th style={{ ...thSt, width: 85  }}>Mercado</th>
               <th style={{ ...thSt, width: 70, textAlign: "right" }}>Beta</th>
               <th style={{ ...thSt, width: 190 }}>Sector</th>
-              <th style={{ ...thSt, width: 100 }}>Tipo</th>
-              <th style={{ ...thSt, width: 100 }}>Strategy</th>
-              <th style={{ ...thSt, width: 110, textAlign: "right" }}>Monto</th>
+              <th style={{ ...thSt, width: 125 }}>Tipo</th>
+              <th style={{ ...thSt, width: 125 }}>Strategy</th>
+              <th style={{ ...thSt, width: 90,  textAlign: "right" }}>Monto</th>
               <th style={{ ...thSt, width: 90,  textAlign: "right" }} title="Calculado automáticamente sobre el total del portafolio">%</th>
               <th style={{ ...thSt, width: 40  }}></th>
             </tr>
@@ -2614,7 +2618,7 @@ function TradingPortfolioTable() {
                 {/* Ticker */}
                 <td style={tdSt}>
                   <input value={row.ticker} onChange={e => updateRow(row.id, "ticker", e.target.value.toUpperCase())}
-                    placeholder="—" style={{ ...inpSt, fontWeight: 700, color: COLOR, letterSpacing: "0.05em", width: 68 }}
+                    placeholder="—" style={{ ...inpSt, fontWeight: 700, color: COLOR, letterSpacing: "0.03em", width: 50, padding: "4px 2px" }}
                     onFocus={e => e.target.style.background = `${COLOR}12`}
                     onBlur={e  => e.target.style.background = "transparent"}
                   />
@@ -2660,7 +2664,7 @@ function TradingPortfolioTable() {
                 <td style={{ ...tdSt, textAlign: "right" }}>
                   <input value={row.amount} onChange={e => updateRow(row.id, "amount", e.target.value)}
                     placeholder="0" type="text" inputMode="decimal"
-                    style={{ ...inpSt, textAlign: "right", width: 90 }}
+                    style={{ ...inpSt, textAlign: "right", width: 78 }}
                     onFocus={e => e.target.style.background = C.surface}
                     onBlur={e  => e.target.style.background = "transparent"}
                   />
