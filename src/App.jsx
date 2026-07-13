@@ -109,8 +109,16 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, LineChart, Line, XAx
 // v2.35 Trading → Histórico de Trades: Wins/Losses ahora se calculan sobre
 //       P/L % USD (antes era P/L % ARS). Agregado un tercer contador "W/L X%"
 //       junto a wins/losses, mostrando el ratio wins/(wins+losses)
+// v2.36 Expenses: (1) Agregada fila de "Subtotal" solo para la primera
+//       categoría (Servicios Fijos), sumando sus ítems por mes.
+//       (2) Caja de comentarios ampliada (popover 220→300px, textarea
+//       60→110px) y agregado autoCapitalize="off" al textarea — el texto no
+//       tenía ningún CSS de mayúsculas, así que el problema era la
+//       autocapitalización del teclado del celular, no un estilo.
+//       (3) Columna "Ítem" ensanchada 220→280px para que el texto largo se
+//       expanda menos verticalmente
 // ─────────────────────────────────────────────────────────────────────────────
-const APP_VERSION = "2.35";
+const APP_VERSION = "2.36";
 const APP_BUILD   = new Date("2026-07-12").toISOString().slice(0,10);
 
 
@@ -1967,7 +1975,7 @@ function ExpCommentCell({ comment, onSave, color }) {
       {open&&(
         <div style={{
           position:"absolute",top:"calc(100% + 6px)",right:0,
-          width:220,background:C.card,border:`1px solid ${color}40`,
+          width:300,background:C.card,border:`1px solid ${color}40`,
           borderRadius:10,boxShadow:"0 8px 28px #00000070",
           zIndex:600,overflow:"hidden",
           animation:"fadeUp 0.15s ease forwards",
@@ -1980,12 +1988,13 @@ function ExpCommentCell({ comment, onSave, color }) {
             {editing ? (
               <textarea autoFocus value={draft} onChange={e=>setDraft(e.target.value)}
                 placeholder="Escribí tu comentario..."
-                style={{width:"100%",minHeight:60,background:C.surface,border:`1px solid ${color}40`,borderRadius:7,color:C.text,fontFamily:"'DM Sans',sans-serif",fontSize:12,padding:"6px 8px",outline:"none",resize:"vertical",boxSizing:"border-box"}}
+                autoCapitalize="off" autoCorrect="off"
+                style={{width:"100%",minHeight:110,background:C.surface,border:`1px solid ${color}40`,borderRadius:7,color:C.text,fontFamily:"'DM Sans',sans-serif",fontSize:13,padding:"8px 10px",outline:"none",resize:"vertical",boxSizing:"border-box",textTransform:"none",lineHeight:1.5}}
                 onFocus={e=>e.target.style.borderColor=color}
                 onBlur={e=>e.target.style.borderColor=`${color}40`}
               />
             ) : (
-              <div style={{fontSize:12,color:has?C.text:C.textMuted,lineHeight:1.5,fontStyle:has?"normal":"italic",minHeight:30}}>
+              <div style={{fontSize:13,color:has?C.text:C.textMuted,lineHeight:1.5,fontStyle:has?"normal":"italic",minHeight:50,textTransform:"none",whiteSpace:"pre-wrap"}}>
                 {has?comment:"Sin comentario. Hacé clic en \"Nueva\" para agregar."}
               </div>
             )}
@@ -2123,6 +2132,13 @@ function ExpensesView() {
   function rowTotal(it) {
     return Object.values(it.months||{}).reduce((s,v)=>s+parseAmt(v),0);
   }
+  // Subtotal de UNA categoría puntual (usado para "Servicios Fijos" — la primera categoría)
+  function catColTotal(cat, m) {
+    return cat.items.reduce((s,it)=>s+parseAmt(it.months?.[m]),0);
+  }
+  function catGrandTotal(cat) {
+    return cat.items.reduce((s,it)=>s+rowTotal(it),0);
+  }
 
   const accentColor = "#f97316"; // orange for expenses tab
 
@@ -2200,7 +2216,7 @@ function ExpensesView() {
             <table style={{width:"100%",borderCollapse:"collapse",minWidth:1100}}>
               <thead>
                 <tr>
-                  <th style={{...thSt,textAlign:"left",width:220,position:"sticky",left:0,zIndex:3,paddingLeft:20}}>Ítem</th>
+                  <th style={{...thSt,textAlign:"left",width:280,position:"sticky",left:0,zIndex:3,paddingLeft:20}}>Ítem</th>
                   {EXPENSE_MONTHS.map((m,i)=>(
                     <th key={i} style={{...thSt,width:90,minWidth:90}}>
                       <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
@@ -2344,6 +2360,25 @@ function ExpensesView() {
                         </td>
                       </tr>
                     ))}
+
+                    {/* Subtotal — solo para la primera categoría (Servicios Fijos) */}
+                    {ci === 0 && cat.items.length > 0 && (
+                      <tr style={{background:`${accentColor}08`}}>
+                        <td style={{padding:"9px 20px",borderBottom:`1px solid ${C.border}`,fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,fontStyle:"italic",color:C.textSub,position:"sticky",left:0,background:`${accentColor}08`}}>
+                          Subtotal {cat.name}
+                        </td>
+                        {EXPENSE_MONTHS.map((_,mi)=>(
+                          <td key={mi} style={{padding:"9px 10px",borderBottom:`1px solid ${C.border}`,textAlign:"right",fontFamily:"'DM Mono',monospace",fontSize:12,fontWeight:600,color:catColTotal(cat,mi+1)>0?C.textSub:C.textMuted,whiteSpace:"nowrap"}}>
+                            {catColTotal(cat,mi+1)>0?fmt(catColTotal(cat,mi+1)):"—"}
+                          </td>
+                        ))}
+                        <td style={{padding:"9px 10px",borderBottom:`1px solid ${C.border}`,textAlign:"right",fontFamily:"'DM Mono',monospace",fontSize:12,fontWeight:700,color:accentColor,whiteSpace:"nowrap"}}>
+                          {fmt(catGrandTotal(cat))}
+                        </td>
+                        <td style={{borderBottom:`1px solid ${C.border}`}}/>
+                        <td style={{borderBottom:`1px solid ${C.border}`}}/>
+                      </tr>
+                    )}
                   </React.Fragment>
                 ))}
 
