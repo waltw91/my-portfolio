@@ -106,8 +106,11 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, LineChart, Line, XAx
 //       backup, se conserva el "last saved" que traía ESE archivo (no se
 //       pisa con el momento de la importación), para poder comparar cuál
 //       backup es más reciente entre dispositivos
+// v2.35 Trading → Histórico de Trades: Wins/Losses ahora se calculan sobre
+//       P/L % USD (antes era P/L % ARS). Agregado un tercer contador "W/L X%"
+//       junto a wins/losses, mostrando el ratio wins/(wins+losses)
 // ─────────────────────────────────────────────────────────────────────────────
-const APP_VERSION = "2.34";
+const APP_VERSION = "2.35";
 const APP_BUILD   = new Date("2026-07-12").toISOString().slice(0,10);
 
 
@@ -3298,12 +3301,21 @@ function TradingHistoricTable() {
             {rows.length} operaciones cerradas
           </span>
           {rows.length > 0 && (() => {
-            const wins   = rows.filter(r => calcHistoric(r).plPctARS > 0).length;
-            const losses = rows.filter(r => calcHistoric(r).plPctARS < 0).length;
+            // Wins/Losses se calculan sobre P/L % USD (no ARS) — mismo criterio en toda la app
+            const wins   = rows.filter(r => calcHistoric(r).plPctUSD > 0).length;
+            const losses = rows.filter(r => calcHistoric(r).plPctUSD < 0).length;
+            const wlPct  = (wins + losses) > 0 ? (wins / (wins + losses)) * 100 : null;
             return (
               <div style={{display:"flex",gap:8}}>
                 {wins   > 0 && <span style={{background:C.greenBg,color:C.green,fontFamily:"'DM Mono',monospace",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:99}}>✓ {wins} wins</span>}
                 {losses > 0 && <span style={{background:C.redBg,  color:C.red,  fontFamily:"'DM Mono',monospace",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:99}}>✗ {losses} losses</span>}
+                {wlPct !== null && (
+                  <span style={{
+                    background: wlPct >= 50 ? C.greenBg : C.redBg,
+                    color:      wlPct >= 50 ? C.green   : C.red,
+                    fontFamily:"'DM Mono',monospace",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:99,
+                  }}>W/L {fmt(wlPct,0)}%</span>
+                )}
               </div>
             );
           })()}
