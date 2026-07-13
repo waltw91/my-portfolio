@@ -98,9 +98,17 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, LineChart, Line, XAx
 //       80→60px, Mercado 110→85px, Monto 110→90px (reducidas), Tipo/Strategy
 //       100→125px cada una (ampliadas); Empresa (ancho flexible) también se
 //       beneficia del espacio liberado
+// v2.34 Nuevo: "Last saved: (fecha y hora)" junto al botón Guardar, en el
+//       dashboard principal. Se actualiza SOLO, en vivo, con cualquier
+//       guardado en cualquier sección de la app (Portfolio/Expenses/Trading/
+//       Notas) — se envolvió localStorage.setItem una única vez para no
+//       depender de tocar cada punto de guardado a mano. Al importar un
+//       backup, se conserva el "last saved" que traía ESE archivo (no se
+//       pisa con el momento de la importación), para poder comparar cuál
+//       backup es más reciente entre dispositivos
 // ─────────────────────────────────────────────────────────────────────────────
-const APP_VERSION = "2.33";
-const APP_BUILD   = new Date("2026-07-09").toISOString().slice(0,10);
+const APP_VERSION = "2.34";
+const APP_BUILD   = new Date("2026-07-12").toISOString().slice(0,10);
 
 
 const FONTS = `
@@ -249,6 +257,45 @@ const EMPTY_FX = { mep:"", ccl:"", crypto:"" };
 function cashKey(y,m){ return `portfolio:cash:${y}-${String(m).padStart(2,"0")}`; }
 const EMPTY_CASH = { uala:"", mp:"", fisicos:"", online_banco:"", online_iol:"" };
 function commentKey(section){ return `portfolio:comment:${section}`; }
+
+// ── "Last saved" — se actualiza automáticamente en CADA guardado, sin
+// importar desde qué sección de la app (Portfolio, Expenses, Trading, Notas,
+// etc.). En vez de tocar uno por uno los ~9 puntos donde la app llama a
+// localStorage.setItem, envolvemos el método una única vez acá: así ningún
+// guardado futuro puede "olvidarse" de actualizar el timestamp.
+const LAST_SAVED_KEY = "portfolio:lastSaved";
+const LAST_SAVED_EVENT = "portfolio:saved";
+
+(function wrapLocalStorageSetItem() {
+  if (typeof window === "undefined" || !window.localStorage || window.localStorage.__lastSavedWrapped) return;
+  const original = window.localStorage.setItem.bind(window.localStorage);
+  window.localStorage.setItem = function(key, value) {
+    original(key, value);
+    // No re-tocar el timestamp cuando la escritura ES el propio timestamp
+    // (esto pasa al importar un backup: queremos conservar el "last saved"
+    // que traía ESE archivo, no pisarlo con el momento de la importación).
+    if (key !== LAST_SAVED_KEY) {
+      original(LAST_SAVED_KEY, new Date().toISOString());
+      try { window.dispatchEvent(new window.Event(LAST_SAVED_EVENT)); } catch {}
+    }
+  };
+  window.localStorage.__lastSavedWrapped = true;
+})();
+
+function getLastSaved() {
+  try {
+    const raw = localStorage.getItem(LAST_SAVED_KEY);
+    if (!raw) return null;
+    const d = new Date(raw);
+    return isNaN(d) ? null : d;
+  } catch { return null; }
+}
+
+function formatLastSaved(d) {
+  if (!d) return null;
+  const pad = n => String(n).padStart(2, "0");
+  return `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()}, ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
 // Cada fila ahora es un snapshot mensual: cantidad + tipo + un único "valor"
 // nativo cargado a mano (USD para CEDEARs/Crypto, ARS para Merval). El otro
 // valor de moneda se calcula al vuelo vía FX solo como referencia — no se guarda.
@@ -4001,12 +4048,21 @@ export default function PortfolioTracker(){
   const [showCompare,setShowCompare]=useState(false);
   const [saving,setSaving]=useState(false);
   const [savedMsg,setSavedMsg]=useState("");
+  const [lastSaved,setLastSaved]=useState(()=>getLastSaved());
   const [data,setData]=useState({cedears:[emptyRow()],pesos:[emptyRow()],crypto:[emptyRow()]});
   const [prevData,setPrevData]=useState(null);
   const [fxRates,setFxRates]=useState(EMPTY_FX);
   const [showARS,setShowARS]=useState(false);
   const [cash,setCash]=useState(EMPTY_CASH);
   const [activeTab,setActiveTab]=useState("portfolio"); // "portfolio" | "eot"
+
+  // "Last saved" — se actualiza solo, en vivo, cada vez que CUALQUIER parte de
+  // la app (esta pestaña u otra) escribe en localStorage. Ver wrapLocalStorageSetItem.
+  useEffect(() => {
+    function onSaved() { setLastSaved(getLastSaved()); }
+    window.addEventListener(LAST_SAVED_EVENT, onSaved);
+    return () => window.removeEventListener(LAST_SAVED_EVENT, onSaved);
+  }, []);
 
   useEffect(()=>{
     const loaded={};
@@ -4420,6 +4476,19 @@ export default function PortfolioTracker(){
           }}>
             {saving?"Guardando…":savedMsg||"Guardar"}
           </button>
+
+          {/* Last saved — se actualiza en vivo con cada guardado, en cualquier
+              pestaña de la app. Útil para comparar qué dispositivo tiene el
+              backup más reciente antes de exportar/importar. */}
+          {lastSaved && (
+            <span title="Se actualiza automáticamente con cada guardado, en cualquier sección de la app" style={{
+              fontFamily:"'DM Mono',monospace", fontSize:11, color:C.textMuted,
+              display:"flex", alignItems:"center", gap:5, whiteSpace:"nowrap",
+            }}>
+              <span style={{width:6,height:6,borderRadius:"50%",background:C.green,flexShrink:0}}/>
+              Last saved: {formatLastSaved(lastSaved)}
+            </span>
+          )}
         </header>
 
         {activeTab==="eot"&&<EOTView showARS={showARS}/>}
