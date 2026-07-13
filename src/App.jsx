@@ -117,8 +117,11 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, LineChart, Line, XAx
 //       autocapitalización del teclado del celular, no un estilo.
 //       (3) Columna "Ítem" ensanchada 220→280px para que el texto largo se
 //       expanda menos verticalmente
+// v2.37 Expenses: la etiqueta de la fila de subtotal ahora dice solo
+//       "Subtotal" (antes incluía el nombre de la categoría, ej. "Subtotal
+//       Servicios Fijos")
 // ─────────────────────────────────────────────────────────────────────────────
-const APP_VERSION = "2.36";
+const APP_VERSION = "2.37";
 const APP_BUILD   = new Date("2026-07-12").toISOString().slice(0,10);
 
 
@@ -2365,7 +2368,7 @@ function ExpensesView() {
                     {ci === 0 && cat.items.length > 0 && (
                       <tr style={{background:`${accentColor}08`}}>
                         <td style={{padding:"9px 20px",borderBottom:`1px solid ${C.border}`,fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,fontStyle:"italic",color:C.textSub,position:"sticky",left:0,background:`${accentColor}08`}}>
-                          Subtotal {cat.name}
+                          Subtotal
                         </td>
                         {EXPENSE_MONTHS.map((_,mi)=>(
                           <td key={mi} style={{padding:"9px 10px",borderBottom:`1px solid ${C.border}`,textAlign:"right",fontFamily:"'DM Mono',monospace",fontSize:12,fontWeight:600,color:catColTotal(cat,mi+1)>0?C.textSub:C.textMuted,whiteSpace:"nowrap"}}>
