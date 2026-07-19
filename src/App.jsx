@@ -120,13 +120,25 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, LineChart, Line, XAx
 // v2.37 Expenses: la etiqueta de la fila de subtotal ahora dice solo
 //       "Subtotal" (antes incluía el nombre de la categoría, ej. "Subtotal
 //       Servicios Fijos")
+// v2.38 Expenses: nueva sección "Asignación Objetivo" debajo de la tabla de
+//       gastos — Current/Target (ambos manuales, numéricos) por ARS/Cedear/
+//       Merval/Crypto, suma automática de los 4 Target ("sum of the above"),
+//       bloque USD con Current en texto libre, y Notas en texto libre.
+//       Se guarda junto con el resto del año (misma clave expenses:{year})
+// v2.39 Asignación Objetivo: (1) la fila calculada al pie ahora muestra la
+//       suma de los 4 "Current" junto a la suma de los 4 "Target" (antes
+//       decía solo "(sum of the above)" sobre el total de Target), para
+//       comparar current vs. target de un vistazo; (2) cada categoría
+//       (ARS/Cedear/Merval/Crypto) tiene ahora un color distintivo (barra
+//       lateral + punto + label coloreado, reutilizando la paleta ya usada
+//       en Portafolio Actual) en vez de texto plano monocromático.
 // ─────────────────────────────────────────────────────────────────────────────
-const APP_VERSION = "2.37";
-const APP_BUILD   = new Date("2026-07-12").toISOString().slice(0,10);
+const APP_VERSION = "2.39";
+const APP_BUILD   = new Date("2026-07-18").toISOString().slice(0,10);
 
 
 const FONTS = `
-  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600&family=DM+Mono:wght@400;500&family=Nunito:wght@600;700;800&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600&family=DM+Mono:wght@400;500&family=Nunito:wght@600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
 `;
 
 const C = {
@@ -149,6 +161,7 @@ const C = {
   cedear: "#f59e0b",
   pesos: "#38bdf8",
   crypto: "#a78bfa",
+  arsCash: "#2dd4bf",
 };
 
 const SECTION_META = {
@@ -1815,6 +1828,24 @@ function makeExpId() { return `e${Date.now()}${Math.floor(Math.random()*1000)}`;
 
 const EXPENSE_MONTHS = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 
+// ── Sección "Asignación Objetivo" — debajo de la tabla de gastos ────────────
+// Current (manual, numérico) + Target (manual, numérico) por categoría de
+// inversión, más un bloque de USD (texto libre) y Notas (texto libre).
+const TARGET_CATEGORIES = [
+  { key: "ars",    label: "ARS",    color: C.arsCash },
+  { key: "cedear", label: "Cedear", color: C.cedear },
+  { key: "merval", label: "Merval", color: C.pesos },
+  { key: "crypto", label: "Crypto", color: C.crypto },
+];
+const EMPTY_TARGETS = {
+  ars:    { current: "", target: "500" },
+  cedear: { current: "", target: "7000" },
+  merval: { current: "", target: "1000" },
+  crypto: { current: "", target: "1000" },
+  usdCurrent: "",
+  notas: "",
+};
+
 function loadExpenses(year) {
   try {
     const r = localStorage.getItem(expKey(year));
@@ -2073,6 +2104,23 @@ function ExpensesView() {
     });
   }
 
+  // ── Asignación Objetivo (Current/Target por categoría + USD + Notas) ──────
+  function updateCategoryTarget(catKey, field, value) {
+    update(d => {
+      if (!d.targets) d.targets = JSON.parse(JSON.stringify(EMPTY_TARGETS));
+      if (!d.targets[catKey]) d.targets[catKey] = { current: "", target: "" };
+      d.targets[catKey][field] = value;
+      return d;
+    });
+  }
+  function updateTargetField(field, value) {
+    update(d => {
+      if (!d.targets) d.targets = JSON.parse(JSON.stringify(EMPTY_TARGETS));
+      d.targets[field] = value;
+      return d;
+    });
+  }
+
   // ── Item ops ─────────────────────────────────────────────────────────────
   function addItem(catId) {
     update(d => {
@@ -2155,6 +2203,11 @@ function ExpensesView() {
     fontFamily:"'DM Mono',monospace", whiteSpace:"nowrap",
     background:C.surface, position:"sticky", top:0, zIndex:2,
   };
+
+  // Asignación Objetivo — con fallback para años que todavía no tienen este campo
+  const targets = data.targets || EMPTY_TARGETS;
+  const targetsSum = TARGET_CATEGORIES.reduce((s,c)=>s+(parseFloat(targets[c.key]?.target)||0),0);
+  const currentSum = TARGET_CATEGORIES.reduce((s,c)=>s+(parseFloat(targets[c.key]?.current)||0),0);
 
   return (
     <div style={{padding:"28px 28px 52px", maxWidth:1380, margin:"0 auto"}}>
@@ -2410,6 +2463,83 @@ function ExpensesView() {
       {/* Footer note */}
       <div style={{fontSize:11,color:C.textMuted,fontFamily:"'DM Mono',monospace",textAlign:"right"}}>
         Los datos se guardan automáticamente · Clic en cualquier celda para editar · USD se anota como referencia (ej: &quot;400 USD&quot;)
+      </div>
+
+      {/* ── Asignación Objetivo ─────────────────────────────────────────────── */}
+      <div style={{marginTop:32,background:C.card,border:`1px solid ${C.border}`,borderRadius:14,overflow:"hidden"}}>
+        <div style={{padding:"14px 20px",background:`linear-gradient(90deg,${accentColor}12,transparent)`,borderBottom:`1px solid ${C.border}`}}>
+          <div style={{fontFamily:"'Nunito',sans-serif",fontSize:16,fontWeight:700,color:C.text}}>Asignación Objetivo</div>
+          <div style={{fontSize:11,color:C.textMuted,marginTop:2}}>Current (manual) vs. Target por categoría</div>
+        </div>
+
+        <div style={{padding:"18px 20px",display:"flex",flexDirection:"column",gap:4}}>
+          {TARGET_CATEGORIES.map(cat=>{
+            const t = targets[cat.key] || {current:"",target:""};
+            const catColor = cat.color || accentColor;
+            return (
+              <div key={cat.key} style={{marginBottom:14,paddingLeft:12,borderLeft:`3px solid ${catColor}`}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                  <span style={{width:8,height:8,borderRadius:"50%",background:catColor,flexShrink:0}}/>
+                  <div style={{fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:14,color:catColor}}>{cat.label}</div>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+                  <label style={{display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{fontSize:12,color:C.textMuted,minWidth:56}}>Current:</span>
+                    <input value={t.current} onChange={e=>updateCategoryTarget(cat.key,"current",e.target.value)}
+                      placeholder="0" type="text" inputMode="decimal"
+                      style={{width:120,background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,fontFamily:"'DM Mono',monospace",fontSize:13,padding:"6px 10px",outline:"none",textAlign:"right"}}
+                      onFocus={e=>e.target.style.borderColor=catColor}
+                      onBlur={e=>e.target.style.borderColor=C.border}
+                    />
+                  </label>
+                  <label style={{display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{fontSize:12,color:C.textMuted,minWidth:48}}>Target:</span>
+                    <input value={t.target} onChange={e=>updateCategoryTarget(cat.key,"target",e.target.value)}
+                      placeholder="0" type="text" inputMode="decimal"
+                      style={{width:120,background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,fontFamily:"'DM Mono',monospace",fontSize:13,padding:"6px 10px",outline:"none",textAlign:"right",fontWeight:600}}
+                      onFocus={e=>e.target.style.borderColor=catColor}
+                      onBlur={e=>e.target.style.borderColor=C.border}
+                    />
+                    <span style={{fontSize:12,color:C.textMuted}}>USD</span>
+                  </label>
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Suma de los "current" — calculado, no editable */}
+          <div style={{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:14,padding:"12px 0",borderTop:`1px solid ${C.border}`,marginTop:4}}>
+            <span style={{fontFamily:"'DM Mono',monospace",fontSize:15,fontWeight:700,color:C.text}}>{fmt(currentSum,0)} USD</span>
+            <span style={{fontSize:12,fontWeight:600,color:C.textSub,fontStyle:"italic"}}>vs.</span>
+            <span style={{fontFamily:"'DM Mono',monospace",fontSize:15,fontWeight:700,color:accentColor}}>{fmt(targetsSum,0)} USD</span>
+          </div>
+
+          {/* USD — texto libre */}
+          <div style={{marginTop:18}}>
+            <div style={{fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:14,color:C.text,marginBottom:8}}>USD</div>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:12,color:C.textMuted,minWidth:56}}>Current:</span>
+              <input value={targets.usdCurrent||""} onChange={e=>updateTargetField("usdCurrent",e.target.value)}
+                placeholder="Ej: Depto., después reformas, vacaciones."
+                style={{flex:1,background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,fontFamily:"'DM Sans',sans-serif",fontSize:13,padding:"6px 10px",outline:"none"}}
+                onFocus={e=>e.target.style.borderColor=accentColor}
+                onBlur={e=>e.target.style.borderColor=C.border}
+              />
+            </div>
+          </div>
+
+          {/* Notas — texto libre, área más grande */}
+          <div style={{marginTop:18}}>
+            <div style={{fontSize:12,color:C.textMuted,marginBottom:8}}>Notas:</div>
+            <textarea value={targets.notas||""} onChange={e=>updateTargetField("notas",e.target.value)}
+              placeholder="Notas libres…"
+              autoCapitalize="off" autoCorrect="off"
+              style={{width:"100%",minHeight:90,background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,fontFamily:"'DM Sans',sans-serif",fontSize:13,padding:"10px 12px",outline:"none",resize:"vertical",boxSizing:"border-box",textTransform:"none",lineHeight:1.5}}
+              onFocus={e=>e.target.style.borderColor=accentColor}
+              onBlur={e=>e.target.style.borderColor=C.border}
+            />
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -4370,6 +4500,10 @@ export default function PortfolioTracker(){
         ::-webkit-scrollbar-thumb{background:${C.border};border-radius:10px;}
         @keyframes fadeUp{from{opacity:0;transform:translateY(14px);}to{opacity:1;transform:translateY(0);}}
         .fu{animation:fadeUp 0.45s cubic-bezier(.16,1,.3,1) forwards;}
+        @keyframes pipeline-dash-flow{to{stroke-dashoffset:-22;}}
+        .pipeline-flow-path{stroke-dasharray:7 4;animation:pipeline-dash-flow 1.6s linear infinite;}
+        @keyframes pipeline-ring-pulse{0%{r:15;opacity:0.6;}100%{r:26;opacity:0;}}
+        .pipeline-pulse-ring{animation:pipeline-ring-pulse 2.5s ease-out infinite;}
       `}</style>
 
       <div style={{minHeight:"100vh",background:C.bg}}>
@@ -4848,6 +4982,108 @@ export default function PortfolioTracker(){
               )}
             </div>
           ))}
+
+          {/* ── Trading Pipeline (diagrama) ── */}
+          <div style={{marginTop:32,marginBottom:22}} className="fu">
+            <div style={{
+              color:C.textMuted,fontSize:10,fontWeight:600,letterSpacing:"0.12em",
+              textTransform:"uppercase",marginBottom:12,
+            }}>Trading Pipeline</div>
+            <div style={{
+              background:"#0F1629",border:"1px solid #1E2D52",borderRadius:14,
+              overflow:"hidden",position:"relative",
+            }}>
+              <svg viewBox="0 0 800 460" xmlns="http://www.w3.org/2000/svg" style={{width:"100%",height:"auto",display:"block"}}>
+                <defs>
+                  <marker id="arrow-indigo" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+                    <path d="M0,0 L0,6 L8,3 z" fill="#6366F1"/>
+                  </marker>
+                  <marker id="arrow-violet" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+                    <path d="M0,0 L0,6 L8,3 z" fill="#8B5CF6"/>
+                  </marker>
+                  <marker id="arrow-emerald" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+                    <path d="M0,0 L0,6 L8,3 z" fill="#10B981"/>
+                  </marker>
+                  <marker id="arrow-amber" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+                    <path d="M0,0 L0,6 L8,3 z" fill="#F59E0B"/>
+                  </marker>
+                  <marker id="arrow-cyan" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+                    <path d="M0,0 L0,6 L8,3 z" fill="#06B6D4"/>
+                  </marker>
+                  <radialGradient id="center-glow" cx="50%" cy="50%" r="50%">
+                    <stop offset="0%" stopColor="#6366F1" stopOpacity="0.07"/>
+                    <stop offset="100%" stopColor="#070B18" stopOpacity="0"/>
+                  </radialGradient>
+                </defs>
+
+                <rect width="800" height="460" fill="#070B18"/>
+                <circle cx="400" cy="230" r="230" fill="url(#center-glow)"/>
+
+                <g stroke="#1E2D52" strokeWidth="0.5" opacity="0.35">
+                  <line x1="0" y1="115" x2="800" y2="115"/>
+                  <line x1="0" y1="230" x2="800" y2="230"/>
+                  <line x1="0" y1="345" x2="800" y2="345"/>
+                </g>
+
+                {/* Fintrack (left edge, lower) -> CDR Screener (top edge), routed around Portfolio Analyzer */}
+                <path d="M349,113 C260,140 200,220 185,268" stroke="#6366F1" strokeWidth="2" fill="none"
+                      markerEnd="url(#arrow-indigo)" className="pipeline-flow-path"/>
+                <text x="222" y="195" textAnchor="middle" fill="#6366F1" fontFamily="JetBrains Mono" fontSize="9">monitor holdings</text>
+
+                {/* CDR Screener (right edge) -> ValueScope (left edge) */}
+                <path d="M223,301 L340,301" stroke="#8B5CF6" strokeWidth="2" fill="none"
+                      markerEnd="url(#arrow-violet)" className="pipeline-flow-path"/>
+                <text x="281" y="291" textAnchor="middle" fill="#8B5CF6" fontFamily="JetBrains Mono" fontSize="9">candidate found</text>
+
+                {/* ValueScope (right edge) -> Swing Gates (left edge) */}
+                <path d="M460,301 L640,301" stroke="#10B981" strokeWidth="2" fill="none"
+                      markerEnd="url(#arrow-emerald)" className="pipeline-flow-path"/>
+                <text x="550" y="291" textAnchor="middle" fill="#10B981" fontFamily="JetBrains Mono" fontSize="9">fundamentals pass</text>
+
+                {/* Swing Gates (top edge) -> Fintrack (right edge), routed up and around Portfolio Analyzer */}
+                <path d="M712,268 C660,150 510,85 457,68" stroke="#F59E0B" strokeWidth="2" fill="none"
+                      markerEnd="url(#arrow-amber)" className="pipeline-flow-path"/>
+                <text x="610" y="165" textAnchor="middle" fill="#F59E0B" fontFamily="JetBrains Mono" fontSize="9">if new / approved</text>
+
+                {/* Portfolio Analyzer (top edge) -> Fintrack (bottom edge) */}
+                <path d="M400,155 L400,138" stroke="#06B6D4" strokeWidth="2.2" fill="none"
+                      markerEnd="url(#arrow-cyan)" className="pipeline-flow-path"/>
+                <text x="460" y="150" textAnchor="middle" fill="#06B6D4" fontFamily="JetBrains Mono" fontSize="9">informs</text>
+
+                {/* Fintrack (top center) */}
+                <circle cx="400" cy="80" r="58" fill="#0F1629" stroke="#06B6D4" strokeWidth="1.6"/>
+                <circle cx="400" cy="80" r="58" fill="none" stroke="#06B6D4" strokeWidth="0.5" opacity="0.4" className="pipeline-pulse-ring"/>
+                <text x="400" y="66" textAnchor="middle" fill="#06B6D4" fontFamily="JetBrains Mono" fontSize="20">⬡</text>
+                <text x="400" y="88" textAnchor="middle" fill="#fff" fontFamily="Inter" fontSize="13" fontWeight="700">Fintrack</text>
+                <text x="400" y="104" textAnchor="middle" fill="#64748B" fontFamily="JetBrains Mono" fontSize="8.5">source of truth</text>
+
+                {/* Portfolio Analyzer (directly below Fintrack, center) */}
+                <rect x="325" y="155" width="150" height="66" rx="10" fill="#0F1629" stroke="#8B5CF6" strokeWidth="1.4"/>
+                <text x="400" y="179" textAnchor="middle" fill="#8B5CF6" fontFamily="JetBrains Mono" fontSize="15">◎</text>
+                <text x="400" y="197" textAnchor="middle" fill="#E2E8F0" fontFamily="Inter" fontSize="11" fontWeight="600">Portfolio Analyzer</text>
+                <text x="400" y="211" textAnchor="middle" fill="#64748B" fontFamily="JetBrains Mono" fontSize="8">reads Fintrack holdings</text>
+
+                {/* CDR Screener (bottom-left) */}
+                <rect x="105" y="268" width="118" height="66" rx="10" fill="#0F1629" stroke="#6366F1" strokeWidth="1.4"/>
+                <text x="164" y="292" textAnchor="middle" fill="#6366F1" fontFamily="JetBrains Mono" fontSize="15">⟳</text>
+                <text x="164" y="310" textAnchor="middle" fill="#E2E8F0" fontFamily="Inter" fontSize="11" fontWeight="600">CDR Screener</text>
+                <text x="164" y="324" textAnchor="middle" fill="#64748B" fontFamily="JetBrains Mono" fontSize="8">scan · score</text>
+
+                {/* ValueScope (bottom-center) */}
+                <rect x="340" y="268" width="120" height="66" rx="10" fill="#0F1629" stroke="#10B981" strokeWidth="1.4"/>
+                <text x="400" y="292" textAnchor="middle" fill="#10B981" fontFamily="JetBrains Mono" fontSize="15">◈</text>
+                <text x="400" y="310" textAnchor="middle" fill="#E2E8F0" fontFamily="Inter" fontSize="11" fontWeight="600">ValueScope</text>
+                <text x="400" y="324" textAnchor="middle" fill="#64748B" fontFamily="JetBrains Mono" fontSize="8">deep analysis</text>
+
+                {/* Swing Gates (bottom-right) */}
+                <rect x="640" y="268" width="120" height="66" rx="10" fill="#0F1629" stroke="#F59E0B" strokeWidth="1.4"/>
+                <text x="700" y="292" textAnchor="middle" fill="#F59E0B" fontFamily="JetBrains Mono" fontSize="15">▲</text>
+                <text x="700" y="310" textAnchor="middle" fill="#E2E8F0" fontFamily="Inter" fontSize="11" fontWeight="600">Swing Gates</text>
+                <text x="700" y="324" textAnchor="middle" fill="#64748B" fontFamily="JetBrains Mono" fontSize="8">3-gate checklist</text>
+
+              </svg>
+            </div>
+          </div>
 
           {/* Footer */}
           <div style={{borderTop:`1px solid ${C.border}`,paddingTop:18,marginTop:4,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
