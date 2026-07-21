@@ -2815,8 +2815,8 @@ function TradingPortfolioTable() {
               <th style={{ ...thSt, width: 70, textAlign: "right" }}>Beta</th>
               <th style={{ ...thSt, width: 190 }}>Sector</th>
               <th style={{ ...thSt, width: 125 }}>Tipo</th>
-              <th style={{ ...thSt, width: 125 }}>Strategy</th>
               <th style={{ ...thSt, width: 90,  textAlign: "right" }}>Monto</th>
+              <th style={{ ...thSt, width: 125 }}>Strategy</th>
               <th style={{ ...thSt, width: 90,  textAlign: "right" }} title="Calculado automáticamente sobre el total del portafolio">%</th>
               <th style={{ ...thSt, width: 40  }}></th>
             </tr>
@@ -2870,19 +2870,19 @@ function TradingPortfolioTable() {
                 <td style={tdSt}>
                   <SelectCell id={row.id} field="type" value={row.type} options={TRADING_TYPES} colorFn={colorForType}/>
                 </td>
-                {/* Strategy — texto libre por ahora (podrá pasar a lista desplegable más adelante) */}
-                <td style={tdSt}>
-                  <input value={row.strategy} onChange={e => updateRow(row.id, "strategy", e.target.value)}
-                    placeholder="Ej: Growth…" style={{ ...inpSt, color: C.textSub }}
-                    onFocus={e => e.target.style.background = C.surface}
-                    onBlur={e  => e.target.style.background = "transparent"}
-                  />
-                </td>
                 {/* Amount */}
                 <td style={{ ...tdSt, textAlign: "right" }}>
                   <input value={row.amount} onChange={e => updateRow(row.id, "amount", e.target.value)}
                     placeholder="0" type="text" inputMode="decimal"
                     style={{ ...inpSt, textAlign: "right", width: 78 }}
+                    onFocus={e => e.target.style.background = C.surface}
+                    onBlur={e  => e.target.style.background = "transparent"}
+                  />
+                </td>
+                {/* Strategy — texto libre por ahora (podrá pasar a lista desplegable más adelante) */}
+                <td style={tdSt}>
+                  <input value={row.strategy} onChange={e => updateRow(row.id, "strategy", e.target.value)}
+                    placeholder="Ej: Growth…" style={{ ...inpSt, color: C.textSub }}
                     onFocus={e => e.target.style.background = C.surface}
                     onBlur={e  => e.target.style.background = "transparent"}
                   />
@@ -2917,10 +2917,11 @@ function TradingPortfolioTable() {
                 <td style={{ padding: "10px 12px", borderTop: `2px solid ${COLOR}40`, textAlign: "right", fontFamily: "'DM Mono',monospace", fontSize: 12, fontWeight: 700, color: colorForBeta(avgBeta) }}>
                   {avgBeta !== null ? fmt(avgBeta, 2) : "—"}
                 </td>
-                <td colSpan={3} style={{ borderTop: `2px solid ${COLOR}40` }} />
+                <td colSpan={2} style={{ borderTop: `2px solid ${COLOR}40` }} />
                 <td style={{ padding: "10px 12px", borderTop: `2px solid ${COLOR}40`, textAlign: "right", fontFamily: "'DM Mono',monospace", fontSize: 12, fontWeight: 700, color: C.text }}>
                   {totalAmount > 0 ? fmt(totalAmount) : "—"}
                 </td>
+                <td style={{ borderTop: `2px solid ${COLOR}40` }} />
                 <td style={{ padding: "10px 12px", borderTop: `2px solid ${COLOR}40`, textAlign: "right", fontFamily: "'DM Mono',monospace", fontSize: 12, fontWeight: 700, color: Math.round(totalPercent) === 100 ? C.green : C.amber }}>
                   {totalPercent > 0 ? fmt(totalPercent, 1) + "%" : "—"}
                 </td>
