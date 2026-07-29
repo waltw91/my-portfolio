@@ -132,9 +132,53 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, LineChart, Line, XAx
 //       (ARS/Cedear/Merval/Crypto) tiene ahora un color distintivo (barra
 //       lateral + punto + label coloreado, reutilizando la paleta ya usada
 //       en Portafolio Actual) en vez de texto plano monocromático.
+// v2.40 Motion: integrados los micro-interactions de Kinetic
+//       (kinetics.colorion.co) en botones y controles generales — alcance
+//       acotado a esta categoría, no se tocaron transiciones de otras
+//       superficies (tablas, gráficos, tooltips). (1) "Squish Button":
+//       todos los botones de acción (Guardar, Exportar/Importar, +Agregar
+//       fila, navegación de mes, comentarios, categorías/items de Expenses,
+//       sort buttons de Trading) ahora se comprimen a scale(0.88) al
+//       presionar y vuelven con resorte (cubic-bezier(.34,1.56,.64,1))
+//       en vez del "transition:all" genérico anterior; (2) botones de
+//       eliminar fila (×) en las tablas de Trading usan la misma mecánica
+//       con un scale más sutil; (3) "Toggle Pills": el tab switcher
+//       principal y los 4 grupos de selección persistente (rango EOT,
+//       series EOT, año en Expenses, ARS/USD) suman un pop de escala
+//       1.06 al activarse. Clases nuevas: .kinetic-btn, .kinetic-btn-sm,
+//       .kinetic-chip/.kinetic-chip-on, definidas en el <style> global.
+// v2.41 Motion (Feedback & State): segunda tanda de Kinetic, esta vez sobre
+//       feedback de acciones. (1) "Status Pill / Success Check": el botón
+//       Guardar ahora tiene un delay mínimo perceptible (320ms) para que
+//       el estado "Guardando…" se note, y al completar dibuja un check ✓
+//       animado en vez de solo cambiar de color; (2) "Undo Snackbar": el
+//       botón Limpiar (Cedears/Pesos/Crypto) ya no usa window.confirm —
+//       borra al toque y muestra un snackbar con "Deshacer" por 6s, con
+//       snapshot completo de las filas previas; (3) "Badge Counter": los
+//       6 badges de conteo en Trading (posiciones, operaciones activas,
+//       operaciones Merval, wins/losses/W-L% en histórico) ahora hacen un
+//       pop de resorte cuando el número cambia (remount vía key={n}).
+//       Clases nuevas: .kinetic-check, .kinetic-pulse-dot,
+//       .kinetic-snackbar, .kinetic-badge, definidas en el <style> global.
+// v2.42 Motion (Surface & Motion): tercera y última tanda de Kinetic,
+//       cierra la trilogía (Interaction & Input → Feedback & State →
+//       Surface & Motion). Alcance acotado a funcional, no decorativo.
+//       (1) "Error Shake": al pasar a vista ARS con posiciones en USD
+//       cargadas (Cedears/Crypto) y el dólar MEP sin completar, el campo
+//       de MEP tiembla y hace scroll a la vista — la causa del "—" en los
+//       totales queda obvia al instante; (2) "Skeleton Sweep": el diagrama
+//       del Trading Pipeline (usa JetBrains Mono, que carga por red vía
+//       Google Fonts) ahora muestra un shimmer placeholder hasta que la
+//       fuente resuelve (Font Loading API), evitando el parpadeo con la
+//       fuente de respaldo; (3) "Shine Sweep": las 5 cards de Grand Totals
+//       tienen un brillo diagonal sutil que las cruza al hacer hover.
+//       Evaluados y descartados por no aportar función real en una app de
+//       finanzas: Confetti Burst, Parallax Tilt, Glitch Text, Aurora
+//       Drift, Page Peel, Cursor Spotlight. Clases nuevas: .kinetic-shake,
+//       .kinetic-skel, .kinetic-shine, en el <style> global.
 // ─────────────────────────────────────────────────────────────────────────────
-const APP_VERSION = "2.39";
-const APP_BUILD   = new Date("2026-07-18").toISOString().slice(0,10);
+const APP_VERSION = "2.42";
+const APP_BUILD   = new Date("2026-07-28").toISOString().slice(0,10);
 
 
 const FONTS = `
@@ -466,7 +510,7 @@ function CommentBubble({ sectionKey, color }) {
   return (
     <div style={{position:"relative",display:"inline-flex"}} ref={bubbleRef}>
       {/* Trigger button */}
-      <button
+      <button className="kinetic-btn"
         onClick={()=>{ setOpen(o=>!o); setEditing(false); }}
         title={hasComment ? "Ver comentario" : "Agregar comentario"}
         style={{
@@ -474,7 +518,7 @@ function CommentBubble({ sectionKey, color }) {
           border: `1px solid ${hasComment ? color+"60" : C.border}`,
           color: hasComment ? color : C.textMuted,
           borderRadius: 8, padding:"6px 9px", cursor:"pointer",
-          fontSize:14, lineHeight:1, transition:"all 0.2s",
+          fontSize:14, lineHeight:1,
           display:"flex", alignItems:"center", gap:5,
         }}
         onMouseEnter={e=>{e.currentTarget.style.borderColor=color;e.currentTarget.style.color=color;e.currentTarget.style.background=`${color}18`;}}
@@ -557,20 +601,20 @@ function CommentBubble({ sectionKey, color }) {
           }}>
             {editing ? (
               <>
-                <button onClick={handleSave} style={{
+                <button className="kinetic-btn" onClick={handleSave} style={{
                   flex:1, background:`${color}20`, border:`1px solid ${color}60`,
                   color, borderRadius:7, padding:"6px 0",
                   cursor:"pointer", fontSize:12, fontWeight:600,
-                  fontFamily:"'DM Sans',sans-serif", transition:"all 0.15s",
+                  fontFamily:"'DM Sans',sans-serif",
                 }}
                   onMouseEnter={e=>e.currentTarget.style.background=`${color}35`}
                   onMouseLeave={e=>e.currentTarget.style.background=`${color}20`}
                 >✓ Guardar</button>
-                <button onClick={handleCancel} style={{
+                <button className="kinetic-btn" onClick={handleCancel} style={{
                   flex:1, background:"transparent", border:`1px solid ${C.border}`,
                   color:C.textMuted, borderRadius:7, padding:"6px 0",
                   cursor:"pointer", fontSize:12,
-                  fontFamily:"'DM Sans',sans-serif", transition:"all 0.15s",
+                  fontFamily:"'DM Sans',sans-serif",
                 }}
                   onMouseEnter={e=>{e.currentTarget.style.borderColor=C.textMuted;e.currentTarget.style.color=C.text;}}
                   onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textMuted;}}
@@ -578,33 +622,33 @@ function CommentBubble({ sectionKey, color }) {
               </>
             ) : (
               <>
-                <button onClick={handleNew} style={{
+                <button className="kinetic-btn" onClick={handleNew} style={{
                   flex:1, background:`${color}14`, border:`1px solid ${color}40`,
                   color, borderRadius:7, padding:"6px 0",
                   cursor:"pointer", fontSize:12, fontWeight:600,
-                  fontFamily:"'DM Sans',sans-serif", transition:"all 0.15s",
+                  fontFamily:"'DM Sans',sans-serif",
                 }}
                   onMouseEnter={e=>e.currentTarget.style.background=`${color}28`}
                   onMouseLeave={e=>e.currentTarget.style.background=`${color}14`}
                 >+ Nueva</button>
-                <button onClick={handleEdit} disabled={!hasComment} style={{
+                <button className="kinetic-btn" onClick={handleEdit} disabled={!hasComment} style={{
                   flex:1, background:"transparent", border:`1px solid ${C.border}`,
                   color: hasComment ? C.textSub : C.textMuted,
                   borderRadius:7, padding:"6px 0",
                   cursor: hasComment ? "pointer" : "default",
                   fontSize:12, fontFamily:"'DM Sans',sans-serif",
-                  opacity: hasComment ? 1 : 0.4, transition:"all 0.15s",
+                  opacity: hasComment ? 1 : 0.4,
                 }}
                   onMouseEnter={e=>{if(hasComment){e.currentTarget.style.borderColor=C.accent;e.currentTarget.style.color=C.accent;}}}
                   onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=hasComment?C.textSub:C.textMuted;}}
                 >✎ Editar</button>
-                <button onClick={handleDelete} disabled={!hasComment} style={{
+                <button className="kinetic-btn" onClick={handleDelete} disabled={!hasComment} style={{
                   flex:1, background:"transparent", border:`1px solid ${C.border}`,
                   color: hasComment ? C.textMuted : C.textMuted,
                   borderRadius:7, padding:"6px 0",
                   cursor: hasComment ? "pointer" : "default",
                   fontSize:12, fontFamily:"'DM Sans',sans-serif",
-                  opacity: hasComment ? 1 : 0.4, transition:"all 0.15s",
+                  opacity: hasComment ? 1 : 0.4,
                 }}
                   onMouseEnter={e=>{if(hasComment){e.currentTarget.style.borderColor=C.red;e.currentTarget.style.color=C.red;e.currentTarget.style.background=C.redBg;}}}
                   onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textMuted;e.currentTarget.style.background="transparent";}}
@@ -947,6 +991,10 @@ function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCo
   const data = Array.isArray(dataProp) ? dataProp : [];
   const meta = SECTION_META[sectionKey];
   const timers = useRef({});
+  // Undo Snackbar (Kinetic) — snapshot de los datos justo antes de "Limpiar",
+  // para poder revertir en los ~6s que el snackbar queda visible.
+  const [undoSnapshot, setUndoSnapshot] = useState(null); // { rows } | null
+  const undoTimerRef = useRef(null);
 
   // FX conversion — always convert to the selected display currency
   // CEDEARs: native USD → ARS = ×MEP  |  USD = no change
@@ -1087,7 +1135,7 @@ function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCo
   });
 
   return (
-    <div style={{marginBottom:28}}>
+    <div style={{marginBottom:28,position:"relative"}}>
       {/* Header bar */}
       <div style={{
         display:"flex",alignItems:"center",justifyContent:"space-between",
@@ -1134,32 +1182,35 @@ function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCo
           )}
           <div style={{display:"flex",alignItems:"center",gap:8}}>
             <CommentBubble sectionKey={sectionKey} color={meta.color}/>
-            <button onClick={()=>{
-              if(window.confirm(`¿Borrar todos los datos de ${meta.label} en este mes?`))
-                onChange(_prev => [emptyRow()]);
+            <button className="kinetic-btn" onClick={()=>{
+              if (data.length===0 || (data.length===1 && !data[0].ticker)) return; // nada que limpiar
+              setUndoSnapshot({ rows: data });
+              onChange(_prev => [emptyRow()]);
+              if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+              undoTimerRef.current = setTimeout(()=>setUndoSnapshot(null), 6000);
             }} style={{
               background:"transparent",border:`1px solid ${C.border}`,
               color:C.textMuted,fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:500,
-              padding:"8px 14px",cursor:"pointer",borderRadius:9,transition:"all 0.2s",
+              padding:"8px 14px",cursor:"pointer",borderRadius:9,
               display:"flex",alignItems:"center",gap:5,
             }}
               onMouseEnter={e=>{e.currentTarget.style.borderColor=C.red;e.currentTarget.style.color=C.red;e.currentTarget.style.background=C.redBg;}}
               onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textMuted;e.currentTarget.style.background="transparent";}}
             ><span style={{fontSize:13}}>🗑</span> Limpiar</button>
-            <button onClick={handleCopy} style={{
+            <button className="kinetic-btn" onClick={handleCopy} style={{
               background:"transparent",border:`1px solid ${C.border}`,
               color:C.textMuted,fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:500,
-              padding:"8px 14px",cursor:"pointer",borderRadius:9,transition:"all 0.2s",
+              padding:"8px 14px",cursor:"pointer",borderRadius:9,
               display:"flex",alignItems:"center",gap:5,
             }}
               title={`Copiar tickers al mes siguiente`}
               onMouseEnter={e=>{e.currentTarget.style.borderColor=C.accent;e.currentTarget.style.color=C.accent;e.currentTarget.style.background=`${C.accent}12`;}}
               onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textMuted;e.currentTarget.style.background="transparent";}}
             ><span style={{fontSize:13}}>📋</span> Copiar</button>
-            <button onClick={addRow} style={{
+            <button className="kinetic-btn" onClick={addRow} style={{
               background:`${meta.color}14`,border:`1px solid ${meta.color}44`,
               color:meta.color,fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:600,
-              padding:"8px 18px",cursor:"pointer",borderRadius:9,transition:"all 0.2s",
+              padding:"8px 18px",cursor:"pointer",borderRadius:9,
             }}
               onMouseEnter={e=>e.currentTarget.style.background=`${meta.color}26`}
               onMouseLeave={e=>e.currentTarget.style.background=`${meta.color}14`}
@@ -1286,9 +1337,9 @@ function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCo
                     </td>
                   )}
                   <td style={{...tdSt,textAlign:"center"}}>
-                    <button onClick={()=>removeRow(row.id)} style={{
+                    <button className="kinetic-btn-sm" onClick={()=>removeRow(row.id)} style={{
                       background:"transparent",border:"none",color:C.textMuted,cursor:"pointer",
-                      fontSize:17,padding:"2px 7px",borderRadius:6,transition:"all 0.18s",lineHeight:1,
+                      fontSize:17,padding:"2px 7px",borderRadius:6,lineHeight:1,
                     }}
                       onMouseEnter={e=>{e.currentTarget.style.color=C.red;e.currentTarget.style.background=C.redBg;}}
                       onMouseLeave={e=>{e.currentTarget.style.color=C.textMuted;e.currentTarget.style.background="transparent";}}
@@ -1308,6 +1359,30 @@ function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCo
         dispCurrency={dispCurrency}
       />
       </div>
+
+      {/* Undo Snackbar (Kinetic) — aparece tras "Limpiar", 6s para revertir */}
+      {undoSnapshot && (
+        <div className="kinetic-snackbar" style={{
+          position:"absolute",bottom:-8,left:"50%",transform:"translate(-50%,100%)",
+          zIndex:20,display:"flex",alignItems:"center",gap:14,
+          background:C.surface,border:`1px solid ${C.border}`,
+          color:"#fff",borderRadius:10,padding:"10px 12px 10px 16px",
+          boxShadow:"0 8px 24px rgba(0,0,0,0.35)",whiteSpace:"nowrap",
+        }}>
+          <span style={{fontSize:12,fontFamily:"'DM Sans',sans-serif"}}>
+            {meta.label} — datos borrados
+          </span>
+          <button className="kinetic-btn" onClick={()=>{
+            onChange(_prev => undoSnapshot.rows);
+            setUndoSnapshot(null);
+            if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+          }} style={{
+            background:"transparent",border:"none",color:meta.color,
+            fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:700,
+            cursor:"pointer",padding:"4px 8px",borderRadius:6,
+          }}>Deshacer</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1647,13 +1722,13 @@ function EOTView({ showARS }) {
           {RANGE_OPTIONS.map(o=>{
             const active = range===o.months;
             return (
-              <button key={o.label} onClick={()=>setRange(o.months)} style={{
+              <button className={active?"kinetic-btn kinetic-chip-on":"kinetic-btn"} key={o.label} onClick={()=>setRange(o.months)} style={{
                 background:active?C.accent:"transparent",
                 border:"none",
                 color:active?"#fff":C.textMuted,
                 fontFamily:"'DM Mono',monospace",fontSize:12,fontWeight:600,
                 padding:"5px 14px",cursor:"pointer",borderRadius:7,
-                transition:"all 0.2s",letterSpacing:"0.04em",
+letterSpacing:"0.04em",
               }}>{o.label}</button>
             );
           })}
@@ -1665,13 +1740,13 @@ function EOTView({ showARS }) {
         {EOT_SERIES.map(s=>{
           const on = !hidden.has(s.key);
           return (
-            <button key={s.key} onClick={()=>toggleSeries(s.key)} style={{
+            <button className={on?"kinetic-btn kinetic-chip-on":"kinetic-btn"} key={s.key} onClick={()=>toggleSeries(s.key)} style={{
               background: on ? `${s.color}20` : "transparent",
               border:`1px solid ${on ? s.color+"60" : C.border}`,
               color: on ? s.color : C.textMuted,
               fontFamily:"'DM Mono',monospace",fontSize:11,fontWeight:600,
               padding:"5px 12px",cursor:"pointer",borderRadius:99,
-              transition:"all 0.2s",display:"flex",alignItems:"center",gap:6,
+display:"flex",alignItems:"center",gap:6,
               letterSpacing:"0.04em",
             }}>
               <div style={{width:8,height:8,borderRadius:"50%",background:on?s.color:C.textMuted,flexShrink:0}}/>
@@ -1991,12 +2066,12 @@ function ExpCommentCell({ comment, onSave, color }) {
 
   return (
     <div style={{position:"relative",display:"inline-flex"}} ref={ref}>
-      <button onClick={()=>{setOpen(o=>!o);setEditing(false);setDraft(comment||"");}} style={{
+      <button className="kinetic-btn" onClick={()=>{setOpen(o=>!o);setEditing(false);setDraft(comment||"");}} style={{
         background:has?`${color}18`:"transparent",
         border:`1px solid ${has?color+"50":C.border}`,
         color:has?color:C.textMuted,
         borderRadius:6,padding:"3px 6px",cursor:"pointer",
-        fontSize:11,lineHeight:1,transition:"all 0.2s",
+        fontSize:11,lineHeight:1,
         display:"flex",alignItems:"center",gap:3,minHeight:24,
       }}
         onMouseEnter={e=>{e.currentTarget.style.borderColor=color;e.currentTarget.style.color=color;e.currentTarget.style.background=`${color}18`;}}
@@ -2228,21 +2303,21 @@ function ExpensesView() {
             {yearRange.map(y=>{
               const active=y===year;
               return (
-                <button key={y} onClick={()=>setYear(y)} style={{
+                <button className={active?"kinetic-btn kinetic-chip-on":"kinetic-btn"} key={y} onClick={()=>setYear(y)} style={{
                   background:active?accentColor:"transparent",border:"none",
                   color:active?"#fff":C.textMuted,
                   fontFamily:"'DM Mono',monospace",fontSize:12,fontWeight:600,
                   padding:"5px 12px",cursor:"pointer",borderRadius:7,
-                  transition:"all 0.2s",
+
                 }}>{y}</button>
               );
             })}
           </div>
-          <button onClick={addCategory} style={{
+          <button className="kinetic-btn" onClick={addCategory} style={{
             background:`${accentColor}18`,border:`1px solid ${accentColor}60`,
             color:accentColor,fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:600,
             padding:"8px 16px",cursor:"pointer",borderRadius:9,
-            display:"flex",alignItems:"center",gap:6,transition:"all 0.2s",
+            display:"flex",alignItems:"center",gap:6,
           }}
             onMouseEnter={e=>e.currentTarget.style.background=`${accentColor}30`}
             onMouseLeave={e=>e.currentTarget.style.background=`${accentColor}18`}
@@ -2316,10 +2391,10 @@ function ExpensesView() {
                           )}
 
                           <div style={{display:"flex",alignItems:"center",gap:4,marginLeft:"auto"}}>
-                            <button onClick={()=>addItem(cat.id)} style={{
+                            <button className="kinetic-btn" onClick={()=>addItem(cat.id)} style={{
                               background:`${accentColor}14`,border:`1px solid ${accentColor}40`,
                               color:accentColor,fontFamily:"'DM Sans',sans-serif",fontSize:11,fontWeight:600,
-                              padding:"4px 10px",cursor:"pointer",borderRadius:7,transition:"all 0.15s",
+                              padding:"4px 10px",cursor:"pointer",borderRadius:7,
                             }}
                               onMouseEnter={e=>e.currentTarget.style.background=`${accentColor}28`}
                               onMouseLeave={e=>e.currentTarget.style.background=`${accentColor}14`}
@@ -2339,10 +2414,10 @@ function ExpensesView() {
                                 }}>No</button>
                               </div>
                             ) : (
-                              <button onClick={()=>setConfirmCat(cat.id)} style={{
+                              <button className="kinetic-btn" onClick={()=>setConfirmCat(cat.id)} style={{
                                 background:"transparent",border:`1px solid ${C.border}`,
                                 color:C.textMuted,fontSize:13,padding:"6px 12px",
-                                cursor:"pointer",borderRadius:7,transition:"all 0.15s",
+                                cursor:"pointer",borderRadius:7,
                                 minWidth:36,minHeight:34,
                               }}
                                 onMouseEnter={e=>{e.currentTarget.style.borderColor=C.red;e.currentTarget.style.color=C.red;e.currentTarget.style.background=C.redBg;}}
@@ -2406,9 +2481,9 @@ function ExpensesView() {
                         </td>
                         {/* Delete */}
                         <td style={{padding:"6px 8px",borderBottom:`1px solid ${C.border}`,textAlign:"center"}}>
-                          <button onClick={()=>deleteItem(cat.id,item.id)} style={{
+                          <button className="kinetic-btn" onClick={()=>deleteItem(cat.id,item.id)} style={{
                             background:"transparent",border:"none",color:C.textMuted,
-                            cursor:"pointer",fontSize:15,padding:"2px 5px",lineHeight:1,borderRadius:5,transition:"all 0.15s",
+                            cursor:"pointer",fontSize:15,padding:"2px 5px",lineHeight:1,borderRadius:5,
                           }}
                             onMouseEnter={e=>{e.currentTarget.style.color=C.red;e.currentTarget.style.background=C.redBg;}}
                             onMouseLeave={e=>{e.currentTarget.style.color=C.textMuted;e.currentTarget.style.background="transparent";}}
@@ -2751,17 +2826,17 @@ function TradingPortfolioTable() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 20px", borderBottom: `1px solid ${C.border}`, flexWrap: "wrap", gap: 10 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {rows.filter(r => r.ticker).length > 0 && (
-            <span style={{
+            <span key={rows.filter(r => r.ticker).length} className="kinetic-badge" style={{
               background: `${COLOR}18`, color: COLOR,
               fontFamily: "'DM Mono',monospace", fontSize: 10, fontWeight: 600,
               padding: "2px 8px", borderRadius: 99,
             }}>{rows.filter(r => r.ticker).length} posiciones</span>
           )}
         </div>
-        <button onClick={addRow} style={{
+        <button className="kinetic-btn" onClick={addRow} style={{
           background: `${COLOR}14`, border: `1px solid ${COLOR}44`,
           color: COLOR, fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 600,
-          padding: "7px 16px", cursor: "pointer", borderRadius: 9, transition: "all 0.2s",
+          padding: "7px 16px", cursor: "pointer", borderRadius: 9,
         }}
           onMouseEnter={e => e.currentTarget.style.background = `${COLOR}28`}
           onMouseLeave={e => e.currentTarget.style.background = `${COLOR}14`}
@@ -2777,7 +2852,7 @@ function TradingPortfolioTable() {
           const isActive = sortField === field;
           const arrow = isActive ? (sortDir === "asc" ? "↑" : "↓") : "↕";
           return (
-            <button key={field} onClick={() => toggleSort(field, defaultDir)} style={{
+            <button className="kinetic-btn" key={field} onClick={() => toggleSort(field, defaultDir)} style={{
               display: "flex", alignItems: "center", gap: 6,
               padding: "7px 14px", minHeight: 32,
               background: isActive ? `${COLOR}18` : C.card,
@@ -2785,7 +2860,7 @@ function TradingPortfolioTable() {
               borderRadius: 8, cursor: "pointer",
               fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: isActive ? 600 : 400,
               color: isActive ? COLOR : C.textSub,
-              transition: "all 0.2s",
+
             }}
               onMouseEnter={e => { if (!isActive) { e.currentTarget.style.borderColor = COLOR + "40"; e.currentTarget.style.color = COLOR; } }}
               onMouseLeave={e => { if (!isActive) { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.textSub; } }}
@@ -2895,10 +2970,10 @@ function TradingPortfolioTable() {
                 </td>
                 {/* Delete */}
                 <td style={{ ...tdSt, textAlign: "center" }}>
-                  <button onClick={() => removeRow(row.id)} style={{
+                  <button className="kinetic-btn-sm" onClick={() => removeRow(row.id)} style={{
                     background: "transparent", border: "none", color: C.textMuted,
                     cursor: "pointer", fontSize: 16, padding: "2px 6px", lineHeight: 1,
-                    borderRadius: 6, transition: "all 0.18s",
+                    borderRadius: 6,
                   }}
                     onMouseEnter={e => { e.currentTarget.style.color = C.red; e.currentTarget.style.background = C.redBg; }}
                     onMouseLeave={e => { e.currentTarget.style.color = C.textMuted; e.currentTarget.style.background = "transparent"; }}
@@ -3171,14 +3246,14 @@ function TradingActiveTable() {
         </div>
         <div style={{flex:1}}/>
         {rows.filter(r=>r.activo).length > 0 && (
-          <span style={{background:`${COLOR}18`,color:COLOR,fontFamily:"'DM Mono',monospace",fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:99}}>
+          <span key={rows.filter(r=>r.activo).length} className="kinetic-badge" style={{background:`${COLOR}18`,color:COLOR,fontFamily:"'DM Mono',monospace",fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:99}}>
             {rows.filter(r=>r.activo).length} operaciones
           </span>
         )}
-        <button onClick={addRow} style={{
+        <button className="kinetic-btn" onClick={addRow} style={{
           background:`${COLOR}14`,border:`1px solid ${COLOR}44`,
           color:COLOR,fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:600,
-          padding:"7px 16px",cursor:"pointer",borderRadius:9,transition:"all 0.2s",
+          padding:"7px 16px",cursor:"pointer",borderRadius:9,
         }}
           onMouseEnter={e=>e.currentTarget.style.background=`${COLOR}28`}
           onMouseLeave={e=>e.currentTarget.style.background=`${COLOR}14`}
@@ -3324,10 +3399,10 @@ function TradingActiveTable() {
                   </td>
                   {/* Cerrar trade → histórico */}
                   <td style={{...tdSt,textAlign:"center"}}>
-                    <button onClick={()=>closeToHistoric(row)} style={{
+                    <button className="kinetic-btn" onClick={()=>closeToHistoric(row)} style={{
                       background:"rgba(167,139,250,0.12)",border:"1px solid rgba(167,139,250,0.4)",
                       color:"#a78bfa",cursor:"pointer",fontSize:11,fontWeight:600,
-                      padding:"4px 10px",borderRadius:7,transition:"all 0.2s",
+                      padding:"4px 10px",borderRadius:7,
                       fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap",
                     }}
                       onMouseEnter={e=>{e.currentTarget.style.background="rgba(167,139,250,0.25)";}}
@@ -3337,10 +3412,10 @@ function TradingActiveTable() {
                   </td>
                   {/* Delete */}
                   <td style={{...tdSt,textAlign:"center"}}>
-                    <button onClick={()=>removeRow(row.id)} style={{
+                    <button className="kinetic-btn-sm" onClick={()=>removeRow(row.id)} style={{
                       background:"transparent",border:"none",color:C.textMuted,
                       cursor:"pointer",fontSize:16,padding:"2px 6px",lineHeight:1,
-                      borderRadius:6,transition:"all 0.18s",
+                      borderRadius:6,
                     }}
                       onMouseEnter={e=>{e.currentTarget.style.color=C.red;e.currentTarget.style.background=C.redBg;}}
                       onMouseLeave={e=>{e.currentTarget.style.color=C.textMuted;e.currentTarget.style.background="transparent";}}
@@ -3476,10 +3551,10 @@ function TradingHistoricTable() {
             const wlPct  = (wins + losses) > 0 ? (wins / (wins + losses)) * 100 : null;
             return (
               <div style={{display:"flex",gap:8}}>
-                {wins   > 0 && <span style={{background:C.greenBg,color:C.green,fontFamily:"'DM Mono',monospace",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:99}}>✓ {wins} wins</span>}
-                {losses > 0 && <span style={{background:C.redBg,  color:C.red,  fontFamily:"'DM Mono',monospace",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:99}}>✗ {losses} losses</span>}
+                {wins   > 0 && <span key={`w${wins}`} className="kinetic-badge" style={{background:C.greenBg,color:C.green,fontFamily:"'DM Mono',monospace",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:99}}>✓ {wins} wins</span>}
+                {losses > 0 && <span key={`l${losses}`} className="kinetic-badge" style={{background:C.redBg,  color:C.red,  fontFamily:"'DM Mono',monospace",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:99}}>✗ {losses} losses</span>}
                 {wlPct !== null && (
-                  <span style={{
+                  <span key={`wl${fmt(wlPct,0)}`} className="kinetic-badge" style={{
                     background: wlPct >= 50 ? C.greenBg : C.redBg,
                     color:      wlPct >= 50 ? C.green   : C.red,
                     fontFamily:"'DM Mono',monospace",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:99,
@@ -3489,10 +3564,10 @@ function TradingHistoricTable() {
             );
           })()}
         </div>
-        <button onClick={addRow} style={{
+        <button className="kinetic-btn" onClick={addRow} style={{
           background:`${COLOR}14`,border:`1px solid ${COLOR}44`,
           color:COLOR,fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:600,
-          padding:"7px 16px",cursor:"pointer",borderRadius:9,transition:"all 0.2s",
+          padding:"7px 16px",cursor:"pointer",borderRadius:9,
         }}
           onMouseEnter={e=>e.currentTarget.style.background=`${COLOR}28`}
           onMouseLeave={e=>e.currentTarget.style.background=`${COLOR}14`}
@@ -3646,10 +3721,10 @@ function TradingHistoricTable() {
                       />
                     </td>
                     <td style={{...tdSt,textAlign:"center"}}>
-                      <button onClick={()=>removeRow(row.id)} style={{
+                      <button className="kinetic-btn-sm" onClick={()=>removeRow(row.id)} style={{
                         background:"transparent",border:"none",color:C.textMuted,
                         cursor:"pointer",fontSize:16,padding:"2px 6px",lineHeight:1,
-                        borderRadius:6,transition:"all 0.18s",
+                        borderRadius:6,
                       }}
                         onMouseEnter={e=>{e.currentTarget.style.color=C.red;e.currentTarget.style.background=C.redBg;}}
                         onMouseLeave={e=>{e.currentTarget.style.color=C.textMuted;e.currentTarget.style.background="transparent";}}
@@ -3793,17 +3868,17 @@ function MervalTradingTable() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 20px", borderBottom: `1px solid ${C.border}`, flexWrap: "wrap", gap: 10 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {rows.filter(r => r.ticker).length > 0 && (
-            <span style={{
+            <span key={rows.filter(r => r.ticker).length} className="kinetic-badge" style={{
               background: `${MERVAL_COLOR}18`, color: MERVAL_COLOR,
               fontFamily: "'DM Mono',monospace", fontSize: 10, fontWeight: 600,
               padding: "2px 8px", borderRadius: 99,
             }}>{rows.filter(r => r.ticker).length} operaciones</span>
           )}
         </div>
-        <button onClick={addRow} style={{
+        <button className="kinetic-btn" onClick={addRow} style={{
           background: `${MERVAL_COLOR}14`, border: `1px solid ${MERVAL_COLOR}44`,
           color: MERVAL_COLOR, fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 600,
-          padding: "7px 16px", cursor: "pointer", borderRadius: 9, transition: "all 0.2s",
+          padding: "7px 16px", cursor: "pointer", borderRadius: 9,
         }}
           onMouseEnter={e => e.currentTarget.style.background = `${MERVAL_COLOR}28`}
           onMouseLeave={e => e.currentTarget.style.background = `${MERVAL_COLOR}14`}
@@ -3935,9 +4010,9 @@ function MervalTradingTable() {
                     </select>
                   </td>
                   <td style={{ ...tdSt, textAlign: "center" }}>
-                    <button onClick={() => removeRow(row.id)} style={{
+                    <button className="kinetic-btn-sm" onClick={() => removeRow(row.id)} style={{
                       background: "transparent", border: "none", color: C.textMuted, cursor: "pointer",
-                      fontSize: 16, padding: "2px 6px", lineHeight: 1, borderRadius: 6, transition: "all 0.18s",
+                      fontSize: 16, padding: "2px 6px", lineHeight: 1, borderRadius: 6,
                     }}
                       onMouseEnter={e => { e.currentTarget.style.color = C.red; e.currentTarget.style.background = C.redBg; }}
                       onMouseLeave={e => { e.currentTarget.style.color = C.textMuted; e.currentTarget.style.background = "transparent"; }}
@@ -4041,10 +4116,10 @@ function WatchlistTable() {
       {/* Toolbar */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 20px", borderBottom: `1px solid ${C.border}` }}>
         <span style={{ fontSize: 11, color: C.textMuted }}>Campos de texto libre — sin cálculos, solo referencia manual</span>
-        <button onClick={addRow} style={{
+        <button className="kinetic-btn" onClick={addRow} style={{
           background: `${WATCHLIST_COLOR}14`, border: `1px solid ${WATCHLIST_COLOR}44`,
           color: WATCHLIST_COLOR, fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 600,
-          padding: "7px 16px", cursor: "pointer", borderRadius: 9, transition: "all 0.2s",
+          padding: "7px 16px", cursor: "pointer", borderRadius: 9,
         }}
           onMouseEnter={e => e.currentTarget.style.background = `${WATCHLIST_COLOR}28`}
           onMouseLeave={e => e.currentTarget.style.background = `${WATCHLIST_COLOR}14`}
@@ -4084,9 +4159,9 @@ function WatchlistTable() {
                   </td>
                 ))}
                 <td style={{ ...tdSt, textAlign: "center" }}>
-                  <button onClick={() => removeRow(row.id)} style={{
+                  <button className="kinetic-btn-sm" onClick={() => removeRow(row.id)} style={{
                     background: "transparent", border: "none", color: C.textMuted, cursor: "pointer",
-                    fontSize: 16, padding: "2px 6px", lineHeight: 1, borderRadius: 6, transition: "all 0.18s",
+                    fontSize: 16, padding: "2px 6px", lineHeight: 1, borderRadius: 6,
                   }}
                     onMouseEnter={e => { e.currentTarget.style.color = C.red; e.currentTarget.style.background = C.redBg; }}
                     onMouseLeave={e => { e.currentTarget.style.color = C.textMuted; e.currentTarget.style.background = "transparent"; }}
@@ -4151,7 +4226,7 @@ function TradingView() {
       {/* Quick-jump nav — scrolls to each section, all of which stay visible below */}
       <div style={{ display: "flex", gap: 10, marginBottom: 24, flexWrap: "wrap" }}>
         {TRADING_SECTIONS.map(s => (
-          <button key={s.key} onClick={() => scrollToSection(s.key)} style={{
+          <button className="kinetic-btn" key={s.key} onClick={() => scrollToSection(s.key)} style={{
             display: "flex", alignItems: "center", gap: 8,
             padding: "10px 20px",
             background: C.card,
@@ -4159,7 +4234,7 @@ function TradingView() {
             borderRadius: 10, cursor: "pointer",
             fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 400,
             color: C.textMuted,
-            transition: "all 0.2s",
+
           }}
             onMouseEnter={e => { e.currentTarget.style.borderColor = s.color + "60"; e.currentTarget.style.color = s.color; e.currentTarget.style.background = `${s.color}18`; }}
             onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.textMuted; e.currentTarget.style.background = C.card; }}
@@ -4236,6 +4311,25 @@ export default function PortfolioTracker(){
   const [showARS,setShowARS]=useState(false);
   const [cash,setCash]=useState(EMPTY_CASH);
   const [activeTab,setActiveTab]=useState("portfolio"); // "portfolio" | "eot"
+  const mepInputRef=useRef(null);
+  const [mepShake,setMepShake]=useState(false);
+  // Skeleton Sweep (Kinetic): el diagrama del Trading Pipeline usa JetBrains
+  // Mono, que carga por red (@import de Google Fonts). Hasta que resuelve,
+  // el SVG se vería con la fuente de respaldo por un instante — mostramos
+  // un shimmer en su lugar y revelamos el diagrama recién cuando está listo.
+  const [pipelineFontReady,setPipelineFontReady]=useState(false);
+  useEffect(()=>{
+    let cancelled=false;
+    if (typeof document!=="undefined" && document.fonts?.load) {
+      document.fonts.load("9px 'JetBrains Mono'")
+        .then(()=>document.fonts.ready)
+        .then(()=>{ if(!cancelled) setPipelineFontReady(true); })
+        .catch(()=>{ if(!cancelled) setPipelineFontReady(true); }); // no bloquear si falla
+    } else {
+      setPipelineFontReady(true); // navegador sin Font Loading API
+    }
+    return ()=>{ cancelled=true; };
+  },[]);
 
   // "Last saved" — se actualiza solo, en vivo, cada vez que CUALQUIER parte de
   // la app (esta pestaña u otra) escribe en localStorage. Ver wrapLocalStorageSetItem.
@@ -4280,16 +4374,21 @@ export default function PortfolioTracker(){
 
   const save=useCallback(()=>{
     setSaving(true);
-    for(const s of ["cedears","pesos","crypto"]){
-      try{ localStorage.setItem(makeKey(s,year,month+1),JSON.stringify(data[s])); }
+    // Delay mínimo para que el estado "Guardando…" sea perceptible (Status
+    // Pill de Kinetic: idle → loading → success necesita los 3 pasos
+    // visibles; el guardado real en localStorage es síncrono e instantáneo).
+    setTimeout(()=>{
+      for(const s of ["cedears","pesos","crypto"]){
+        try{ localStorage.setItem(makeKey(s,year,month+1),JSON.stringify(data[s])); }
+        catch(e){ console.error(e); }
+      }
+      try{ localStorage.setItem(fxKey(year,month+1),JSON.stringify(fxRates)); }
       catch(e){ console.error(e); }
-    }
-    try{ localStorage.setItem(fxKey(year,month+1),JSON.stringify(fxRates)); }
-    catch(e){ console.error(e); }
-    try{ localStorage.setItem(cashKey(year,month+1),JSON.stringify(cash)); }
-    catch(e){ console.error(e); }
-    setSaving(false);setSavedMsg("Guardado ✓");
-    setTimeout(()=>setSavedMsg(""),2500);
+      try{ localStorage.setItem(cashKey(year,month+1),JSON.stringify(cash)); }
+      catch(e){ console.error(e); }
+      setSaving(false);setSavedMsg("Guardado ✓");
+      setTimeout(()=>setSavedMsg(""),2500);
+    },320);
   },[data,fxRates,cash,year,month]);
 
   function prevM(){if(month===0){setMonth(11);setYear(y=>y-1);}else setMonth(m=>m-1);}
@@ -4485,7 +4584,7 @@ export default function PortfolioTracker(){
   const btnBase={
     background:C.card,border:`1px solid ${C.border}`,color:C.textSub,
     cursor:"pointer",padding:"6px 13px",fontSize:18,borderRadius:9,
-    transition:"all 0.18s",lineHeight:1,fontFamily:"sans-serif",
+    lineHeight:1,fontFamily:"sans-serif",
   };
 
   return (
@@ -4505,6 +4604,89 @@ export default function PortfolioTracker(){
         .pipeline-flow-path{stroke-dasharray:7 4;animation:pipeline-dash-flow 1.6s linear infinite;}
         @keyframes pipeline-ring-pulse{0%{r:15;opacity:0.6;}100%{r:26;opacity:0;}}
         .pipeline-pulse-ring{animation:pipeline-ring-pulse 2.5s ease-out infinite;}
+
+        /* ── Kinetic (kinetics.colorion.co) — botones y controles ──
+           Squish Button: compresión rápida al presionar (0.08s ease-out),
+           resorte con overshoot al soltar (0.5s cubic-bezier(.34,1.56,.64,1)).
+           Reemplaza el "transition:all 0.18s/0.2s" genérico de btnBase y de
+           todos los botones de ícono/acción del archivo. */
+        .kinetic-btn{
+          transition:transform 0.5s cubic-bezier(.34,1.56,.64,1),
+                     background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+        }
+        .kinetic-btn:active{
+          transform:scale(0.88);
+          transition:transform 0.08s ease-out;
+        }
+        /* Toggle Pills / Choice Chips: pop de resorte al activarse — para
+           tab switchers, selects de tipo pill, y filtros on/off. */
+        .kinetic-chip{
+          transition:transform 0.5s cubic-bezier(.34,1.56,.64,1),
+                     background 0.22s ease, color 0.22s ease, border-color 0.22s ease;
+        }
+        .kinetic-chip.kinetic-chip-on{ transform:scale(1.06); }
+        /* Delete / destructive icon buttons: mismo squish, radio de escala
+           un poco menor para no competir visualmente con el color de alerta. */
+        .kinetic-btn-sm:active{ transform:scale(0.85); transition:transform 0.08s ease-out; }
+
+        /* Status Pill / Success Check — botón Guardar. El check se dibuja de
+           0 a 1 con stroke-dashoffset (pathLength=1 normaliza el largo del
+           trazo a 1 sin importar el path real). El label pulsa suave
+           mientras saving=true para reforzar que algo está en curso. */
+        @keyframes kinetic-check-draw{from{stroke-dasharray:1;stroke-dashoffset:1;}to{stroke-dasharray:1;stroke-dashoffset:0;}}
+        .kinetic-check path{animation:kinetic-check-draw 0.38s cubic-bezier(.65,0,.35,1) forwards;}
+        @keyframes kinetic-pulse-dot{0%,100%{opacity:1;}50%{opacity:0.55;}}
+        .kinetic-pulse-dot{animation:kinetic-pulse-dot 0.9s ease-in-out infinite;}
+
+        /* Undo Snackbar — entra desde abajo con leve overshoot ("Toast
+           Overshoot" de Kinetic), en vez de aparecer/desaparecer seco. */
+        @keyframes kinetic-snackbar-in{
+          0%{opacity:0;transform:translate(-50%,60%);}
+          70%{opacity:1;transform:translate(-50%,94%);}
+          100%{opacity:1;transform:translate(-50%,100%);}
+        }
+        .kinetic-snackbar{animation:kinetic-snackbar-in 0.42s cubic-bezier(.34,1.56,.64,1) forwards;}
+
+        /* Badge Counter — al cambiar el número, el badge se remonta (key={n})
+           y este pop de resorte comunica "esto cambió" sin ser ruidoso. */
+        @keyframes kinetic-badge-pop{0%{transform:scale(0.6);opacity:0.4;}60%{transform:scale(1.12);opacity:1;}100%{transform:scale(1);opacity:1;}}
+        .kinetic-badge{display:inline-block;animation:kinetic-badge-pop 0.32s cubic-bezier(.34,1.56,.64,1);}
+
+        /* Error Shake — oscilación horizontal decreciente, para llamar la
+           atención sobre un campo que bloquea un cálculo (ej. FX rate
+           faltante). Retriggereable vía remount de className. */
+        @keyframes kinetic-shake-x{
+          10%,90%{transform:translateX(-1px);}
+          20%,80%{transform:translateX(2px);}
+          30%,50%,70%{transform:translateX(-4px);}
+          40%,60%{transform:translateX(4px);}
+        }
+        .kinetic-shake{animation:kinetic-shake-x 0.45s cubic-bezier(.36,.07,.19,.97) both;}
+
+        /* Skeleton Sweep — placeholder con shimmer mientras JetBrains Mono
+           carga por red, antes de revelar el diagrama del Trading Pipeline. */
+        .kinetic-skel{
+          background:linear-gradient(90deg,#141b30 25%,#1c2540 50%,#141b30 75%);
+          background-size:200% 100%;
+          animation:kinetic-shimmer-sweep 1.4s ease-in-out infinite;
+        }
+        @keyframes kinetic-shimmer-sweep{0%{background-position:200% 0;}100%{background-position:-200% 0;}}
+
+        /* Shine Sweep — franja diagonal translúcida que cruza la card al
+           pasar el mouse, para las cards de Grand Totals. */
+        .kinetic-shine{ position:relative; overflow:hidden; }
+        .kinetic-shine::before{
+          content:"";
+          position:absolute; top:0; left:-120%;
+          width:60%; height:100%;
+          transform:skewX(-20deg);
+          background:linear-gradient(90deg,transparent,rgba(240,240,245,0.08),transparent);
+          pointer-events:none;
+        }
+        .kinetic-shine:hover::before{
+          left:120%;
+          transition:left 0.9s cubic-bezier(.65,0,.35,1);
+        }
       `}</style>
 
       <div style={{minHeight:"100vh",background:C.bg}}>
@@ -4536,14 +4718,16 @@ export default function PortfolioTracker(){
             {[{key:"portfolio",label:"Portfolio",icon:"📊"},{key:"eot",label:"EOT",icon:"📈"},{key:"expenses",label:"Expenses",icon:"💸"},{key:"trading",label:"Trading",icon:"⚡"}].map(t=>{
               const active=activeTab===t.key;
               return (
-                <button key={t.key} onClick={()=>setActiveTab(t.key)} style={{
-                  background:active?C.accent:"transparent",
-                  border:"none",
-                  color:active?"#fff":C.textMuted,
-                  fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:600,
-                  padding:"5px 14px",cursor:"pointer",borderRadius:7,
-                  transition:"all 0.2s",display:"flex",alignItems:"center",gap:5,
-                }}>
+                <button key={t.key} onClick={()=>setActiveTab(t.key)}
+                  className={active?"kinetic-chip kinetic-chip-on":"kinetic-chip"}
+                  style={{
+                    background:active?C.accent:"transparent",
+                    border:"none",
+                    color:active?"#fff":C.textMuted,
+                    fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:600,
+                    padding:"5px 14px",cursor:"pointer",borderRadius:7,
+                    display:"flex",alignItems:"center",gap:5,
+                  }}>
                   <span>{t.icon}</span>{t.label}
                 </button>
               );
@@ -4554,7 +4738,7 @@ export default function PortfolioTracker(){
 
           {/* Month selector — hidden on EOT tab */}
           <div style={{display:activeTab==="portfolio"?"flex":"none",alignItems:"center",gap:8}}>
-            <button style={btnBase} onClick={prevM}
+            <button className="kinetic-btn" style={btnBase} onClick={prevM}
               onMouseEnter={e=>{e.currentTarget.style.borderColor=C.accent;e.currentTarget.style.color=C.accent;}}
               onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textSub;}}
             >‹</button>
@@ -4563,7 +4747,7 @@ export default function PortfolioTracker(){
               borderRadius:9,fontFamily:"'DM Mono',monospace",fontSize:13,
               color:C.text,minWidth:168,textAlign:"center",fontWeight:500,letterSpacing:"0.02em",
             }}>{MONTHS[month]} {year}</div>
-            <button style={btnBase} onClick={nextM}
+            <button className="kinetic-btn" style={btnBase} onClick={nextM}
               onMouseEnter={e=>{e.currentTarget.style.borderColor=C.accent;e.currentTarget.style.color=C.accent;}}
               onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textSub;}}
             >›</button>
@@ -4580,26 +4764,40 @@ export default function PortfolioTracker(){
               const active=(cur==="ARS"?showARS:!showARS);
               const color=cur==="ARS"?C.pesos:C.cedear;
               return (
-                <button key={cur} onClick={()=>setShowARS(cur==="ARS")} style={{
+                <button className={active?"kinetic-btn kinetic-chip-on":"kinetic-btn"} key={cur} onClick={()=>{
+                  const goingARS = cur==="ARS";
+                  setShowARS(goingARS);
+                  // Error Shake (Kinetic): si el usuario pasa a ARS pero hay
+                  // posiciones cargadas en USD (Cedears/Crypto) y todavía no
+                  // completó el dólar MEP, esos valores van a mostrar "—" sin
+                  // explicación visible. Agitamos el input de MEP y hacemos
+                  // scroll para que la causa sea obvia de inmediato.
+                  const hasUsdPositions = [...data.cedears,...data.crypto].some(r=>r.ticker && r.valor);
+                  if (goingARS && hasUsdPositions && !parseFloat(fxRates.mep)) {
+                    mepInputRef.current?.scrollIntoView({behavior:"smooth",block:"center"});
+                    setMepShake(true);
+                    setTimeout(()=>setMepShake(false),500);
+                  }
+                }} style={{
                   background:active?`${color}20`:"transparent",
                   border:`1px solid ${active?color+"60":"transparent"}`,
                   color:active?color:C.textMuted,
                   fontFamily:"'DM Mono',monospace",fontSize:12,fontWeight:600,
                   padding:"5px 14px",cursor:"pointer",borderRadius:7,
-                  transition:"all 0.2s",letterSpacing:"0.06em",
+letterSpacing:"0.06em",
                 }}>{cur}</button>
               );
             })}
           </div>
 
           {/* Compare toggle */}
-          <button onClick={()=>setShowCompare(c=>!c)} style={{
+          <button className="kinetic-btn" onClick={()=>setShowCompare(c=>!c)} style={{
             background:showCompare?`${C.accent}1a`:"transparent",
             border:`1px solid ${showCompare?C.accent:C.border}`,
             color:showCompare?C.accent:C.textSub,
             fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:500,
             padding:"7px 18px",cursor:"pointer",borderRadius:9,
-            display:"flex",alignItems:"center",gap:7,transition:"all 0.2s",
+            display:"flex",alignItems:"center",gap:7,
           }}>
             <span style={{fontSize:16}}>⇄</span> Comparar mes
           </button>
@@ -4611,11 +4809,11 @@ export default function PortfolioTracker(){
               id="import-file-input" type="file" accept=".json"
               style={{display:"none"}} onChange={handleImport}
             />
-            <button onClick={()=>document.getElementById("import-file-input").click()} style={{
+            <button className="kinetic-btn" onClick={()=>document.getElementById("import-file-input").click()} style={{
               background:"transparent",border:`1px solid ${C.border}`,
               color:C.textSub,fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:500,
               padding:"7px 14px",cursor:"pointer",borderRadius:9,
-              display:"flex",alignItems:"center",gap:6,transition:"all 0.2s",
+              display:"flex",alignItems:"center",gap:6,
             }}
               onMouseEnter={e=>{e.currentTarget.style.borderColor=C.pesos;e.currentTarget.style.color=C.pesos;}}
               onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textSub;}}
@@ -4628,11 +4826,11 @@ export default function PortfolioTracker(){
               </svg>
               Importar
             </button>
-            <button onClick={handleExport} style={{
+            <button className="kinetic-btn" onClick={handleExport} style={{
               background:"transparent",border:`1px solid ${C.border}`,
               color:C.textSub,fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:500,
               padding:"7px 14px",cursor:"pointer",borderRadius:9,
-              display:"flex",alignItems:"center",gap:6,transition:"all 0.2s",
+              display:"flex",alignItems:"center",gap:6,
             }}
               onMouseEnter={e=>{e.currentTarget.style.borderColor=C.cedear;e.currentTarget.style.color=C.cedear;}}
               onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textSub;}}
@@ -4649,17 +4847,26 @@ export default function PortfolioTracker(){
 
           <div style={{width:1,height:24,background:C.border}}/>
 
-          {/* Save local */}
-          <button onClick={save} style={{
+          {/* Save local — Kinetic Status Pill: idle → loading (pulso sutil) →
+              success (check animado, dibujo de trazo) */}
+          <button className="kinetic-btn" onClick={save} style={{
             background:savedMsg?C.greenBg:`linear-gradient(135deg,${C.accent}dd,${C.crypto}88)`,
             border:`1px solid ${savedMsg?C.green:C.accent+"88"}`,
             color:savedMsg?C.green:C.text,
             fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:600,
             padding:"7px 22px",cursor:"pointer",borderRadius:9,
             boxShadow:savedMsg?"none":`0 0 22px ${C.accent}30`,
-            transition:"all 0.25s",
+            display:"flex",alignItems:"center",gap:7,
           }}>
-            {saving?"Guardando…":savedMsg||"Guardar"}
+            {savedMsg && (
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" className="kinetic-check">
+                <path d="M4 12.5L9.5 18L20 6" stroke={C.green} strokeWidth="3.2"
+                  strokeLinecap="round" strokeLinejoin="round" pathLength="1"/>
+              </svg>
+            )}
+            <span className={saving?"kinetic-pulse-dot":undefined}>
+              {saving?"Guardando…":savedMsg||"Guardar"}
+            </span>
           </button>
 
           {/* Last saved — se actualiza en vivo con cada guardado, en cualquier
@@ -4690,7 +4897,7 @@ export default function PortfolioTracker(){
             <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:16}}>
 
               {/* 1. Pesos */}
-              <div style={{
+              <div className="kinetic-shine" style={{
                 background:C.card,border:"1px solid #26262e",borderRadius:16,
                 padding:"20px 22px",position:"relative",overflow:"hidden",
                 boxShadow:"0 4px 24px #00000030",
@@ -4707,7 +4914,7 @@ export default function PortfolioTracker(){
               </div>
 
               {/* 2. Dolarizado */}
-              <div style={{
+              <div className="kinetic-shine" style={{
                 background:C.card,border:"1px solid #26262e",borderRadius:16,
                 padding:"20px 22px",position:"relative",overflow:"hidden",
                 boxShadow:"0 4px 24px #00000030",
@@ -4727,7 +4934,7 @@ export default function PortfolioTracker(){
 
 
               {/* Dolarización % */}
-              <div style={{
+              <div className="kinetic-shine" style={{
                 background:C.card,border:"1px solid #26262e",borderRadius:16,
                 padding:"20px 22px",position:"relative",overflow:"hidden",
                 boxShadow:"0 4px 24px #00000030",
@@ -4755,7 +4962,7 @@ export default function PortfolioTracker(){
               </div>
 
               {/* 3. Grand Total */}
-              <div style={{
+              <div className="kinetic-shine" style={{
                 background:`linear-gradient(135deg,${C.card},${C.surface})`,
                 border:`1px solid ${C.border}`,borderRadius:16,
                 padding:"20px 22px",position:"relative",overflow:"hidden",
@@ -4775,7 +4982,7 @@ export default function PortfolioTracker(){
               </div>
 
               {/* 4. Δ vs Mes Anterior — reemplaza "Total Invested" (ya no hay costo base) */}
-              <div style={{
+              <div className="kinetic-shine" style={{
                 background:C.card,border:`1px solid ${C.border}`,borderRadius:16,
                 padding:"20px 22px",position:"relative",overflow:"hidden",
                 boxShadow:"0 4px 24px #00000030",
@@ -4908,8 +5115,10 @@ export default function PortfolioTracker(){
                   <div style={{width:8,height:8,borderRadius:2,background:color,flexShrink:0}}/>
                   <span style={{fontSize:11,color:C.textMuted,fontWeight:500,letterSpacing:"0.06em",textTransform:"uppercase"}}>{label}</span>
                 </div>
-                <div style={{display:"flex",alignItems:"center",gap:6,
-                  background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,
+                <div ref={key==="mep"?mepInputRef:undefined}
+                  className={key==="mep"&&mepShake?"kinetic-shake":undefined}
+                  style={{display:"flex",alignItems:"center",gap:6,
+                  background:C.surface,border:`1px solid ${key==="mep"&&mepShake?C.red:C.border}`,borderRadius:9,
                   padding:"7px 12px",transition:"border-color 0.2s",
                 }}
                   onFocus={e=>e.currentTarget.style.borderColor=color}
@@ -4994,7 +5203,17 @@ export default function PortfolioTracker(){
               background:"#0F1629",border:"1px solid #1E2D52",borderRadius:14,
               overflow:"hidden",position:"relative",
             }}>
-              <svg viewBox="0 0 800 460" xmlns="http://www.w3.org/2000/svg" style={{width:"100%",height:"auto",display:"block"}}>
+              {!pipelineFontReady && (
+                <div style={{padding:24,display:"flex",flexDirection:"column",gap:10}}>
+                  <div className="kinetic-skel" style={{height:180,borderRadius:10}}/>
+                  <div style={{display:"flex",gap:10}}>
+                    <div className="kinetic-skel" style={{height:64,borderRadius:10,flex:1}}/>
+                    <div className="kinetic-skel" style={{height:64,borderRadius:10,flex:1}}/>
+                    <div className="kinetic-skel" style={{height:64,borderRadius:10,flex:1}}/>
+                  </div>
+                </div>
+              )}
+              <svg viewBox="0 0 800 460" xmlns="http://www.w3.org/2000/svg" style={{width:"100%",height:pipelineFontReady?"auto":0,display:pipelineFontReady?"block":"none"}}>
                 <defs>
                   <marker id="arrow-indigo" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
                     <path d="M0,0 L0,6 L8,3 z" fill="#6366F1"/>
