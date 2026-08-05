@@ -176,9 +176,28 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, LineChart, Line, XAx
 //       finanzas: Confetti Burst, Parallax Tilt, Glitch Text, Aurora
 //       Drift, Page Peel, Cursor Spotlight. Clases nuevas: .kinetic-shake,
 //       .kinetic-skel, .kinetic-shine, en el <style> global.
+// v2.43 (1) Portfolio: eliminada la columna "Cantidad" de Cedears/Pesos
+//       (Merval)/Crypto — sin uso actual, no alimentaba ningún cálculo
+//       en esta tabla (Trading → Merval SÍ usa Cantidad para Total PPC,
+//       esa tabla no se tocó). El campo "shares" se mantiene en el shape
+//       de datos por compatibilidad con meses ya guardados, solo se dejó
+//       de mostrar/editar. (2) Expenses → Asignación Objetivo: cuando
+//       "Current" supera a "Target" en una categoría, el input se pinta
+//       en rojo (borde + texto + negrita) y suma un ⚠️ con tooltip
+//       indicando cuánto es el target superado.
+// v2.44 Top nav: reorganizado en dos filas para aliviar la sobrecarga
+//       horizontal (9 grupos de elementos competían por una sola línea de
+//       62px). Fila 1 — identidad/navegación: marca, tab switcher
+//       (Portfolio/EOT/Expenses/Trading), selector de mes (solo visible en
+//       Portfolio). Fila 2 — controles de vista + acciones: toggle
+//       ARS/USD, Comparar mes, Importar/Exportar, Guardar, Last saved.
+//       El header pasa de height fijo a padding vertical (se adapta al
+//       contenido de 2 filas), y ambas filas tienen flexWrap:"wrap" para
+//       degradar a una tercera línea en pantallas muy angostas en vez de
+//       cortar contenido u obligar a scroll horizontal.
 // ─────────────────────────────────────────────────────────────────────────────
-const APP_VERSION = "2.42";
-const APP_BUILD   = new Date("2026-07-28").toISOString().slice(0,10);
+const APP_VERSION = "2.44";
+const APP_BUILD   = new Date("2026-08-05").toISOString().slice(0,10);
 
 
 const FONTS = `
@@ -1227,7 +1246,6 @@ function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCo
             <tr>
               <th style={{...thSt,width:90}}>Ticker</th>
               <th style={{...thSt}}>Empresa</th>
-              <th style={{...thSt,width:100,textAlign:"right"}}>Cantidad</th>
               <th style={{...thSt,width:130}}>
                 <span style={{display:"inline-flex",alignItems:"center",gap:2}}>
                   Tipo
@@ -1249,7 +1267,7 @@ function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCo
           </thead>
           <tbody>
             {data.length===0&&(
-              <tr><td colSpan={showCompare?8:7} style={{...tdSt,textAlign:"center",color:C.textMuted,padding:40,fontSize:13}}>
+              <tr><td colSpan={showCompare?7:6} style={{...tdSt,textAlign:"center",color:C.textMuted,padding:40,fontSize:13}}>
                 Sin posiciones · Hacé clic en "+ Agregar fila"
               </td></tr>
             )}
@@ -1277,13 +1295,6 @@ function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCo
                   <td style={tdSt}>
                     <input value={row.name} onChange={e=>updateRow(row.id,"name",e.target.value)}
                       placeholder="Nombre…" style={{...inpSt,color:C.textSub}}
-                      onFocus={e=>e.target.style.background=C.surface}
-                      onBlur={e=>e.target.style.background="transparent"}
-                    />
-                  </td>
-                  <td style={{...tdSt,textAlign:"right"}}>
-                    <input value={row.shares} onChange={e=>updateRow(row.id,"shares",e.target.value)}
-                      placeholder="0" type="text" inputMode="decimal" style={{...inpSt,textAlign:"right",width:72}}
                       onFocus={e=>e.target.style.background=C.surface}
                       onBlur={e=>e.target.style.background="transparent"}
                     />
@@ -2551,6 +2562,9 @@ function ExpensesView() {
           {TARGET_CATEGORIES.map(cat=>{
             const t = targets[cat.key] || {current:"",target:""};
             const catColor = cat.color || accentColor;
+            const curNum = parseFloat(t.current);
+            const tgtNum = parseFloat(t.target);
+            const overTarget = !isNaN(curNum) && !isNaN(tgtNum) && curNum > tgtNum;
             return (
               <div key={cat.key} style={{marginBottom:14,paddingLeft:12,borderLeft:`3px solid ${catColor}`}}>
                 <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
@@ -2562,10 +2576,17 @@ function ExpensesView() {
                     <span style={{fontSize:12,color:C.textMuted,minWidth:56}}>Current:</span>
                     <input value={t.current} onChange={e=>updateCategoryTarget(cat.key,"current",e.target.value)}
                       placeholder="0" type="text" inputMode="decimal"
-                      style={{width:120,background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,fontFamily:"'DM Mono',monospace",fontSize:13,padding:"6px 10px",outline:"none",textAlign:"right"}}
+                      title={overTarget?`Supera el target (${fmt(tgtNum,0)} USD)`:undefined}
+                      style={{
+                        width:120,background:C.surface,
+                        border:`1px solid ${overTarget?C.red:C.border}`,borderRadius:7,
+                        color:overTarget?C.red:C.text,fontWeight:overTarget?700:400,
+                        fontFamily:"'DM Mono',monospace",fontSize:13,padding:"6px 10px",outline:"none",textAlign:"right",
+                      }}
                       onFocus={e=>e.target.style.borderColor=catColor}
-                      onBlur={e=>e.target.style.borderColor=C.border}
+                      onBlur={e=>e.target.style.borderColor=overTarget?C.red:C.border}
                     />
+                    {overTarget && <span title={`Supera el target (${fmt(tgtNum,0)} USD)`} style={{fontSize:13}}>⚠️</span>}
                   </label>
                   <label style={{display:"flex",alignItems:"center",gap:8}}>
                     <span style={{fontSize:12,color:C.textMuted,minWidth:48}}>Target:</span>
@@ -4691,13 +4712,17 @@ export default function PortfolioTracker(){
 
       <div style={{minHeight:"100vh",background:C.bg}}>
 
-        {/* ── Top nav ── */}
+        {/* ── Top nav — dos filas: Fila 1 identidad/navegación, Fila 2
+             controles de vista y acciones (evita el header sobrecargado
+             horizontalmente) ── */}
         <header style={{
           position:"sticky",top:0,zIndex:200,
           background:`${C.surface}ee`,backdropFilter:"blur(24px)",
           borderBottom:`1px solid ${C.border}`,
-          padding:"0 28px",display:"flex",alignItems:"center",gap:16,height:62,
+          padding:"10px 28px",display:"flex",flexDirection:"column",gap:10,
         }}>
+          {/* Fila 1 — Identidad + navegación: marca, tabs, selector de mes */}
+          <div style={{display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
           {/* Brand */}
           <div style={{display:"flex",alignItems:"center",gap:10,marginRight:6}}>
             <div style={{
@@ -4734,10 +4759,9 @@ export default function PortfolioTracker(){
             })}
           </div>
 
-          <div style={{width:1,height:24,background:C.border}}/>
-
           {/* Month selector — hidden on EOT tab */}
           <div style={{display:activeTab==="portfolio"?"flex":"none",alignItems:"center",gap:8}}>
+            <div style={{width:1,height:24,background:C.border,marginRight:8}}/>
             <button className="kinetic-btn" style={btnBase} onClick={prevM}
               onMouseEnter={e=>{e.currentTarget.style.borderColor=C.accent;e.currentTarget.style.color=C.accent;}}
               onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textSub;}}
@@ -4752,9 +4776,11 @@ export default function PortfolioTracker(){
               onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textSub;}}
             >›</button>
           </div>
+          </div>
 
-          <div style={{flex:1}}/>
-
+          {/* Fila 2 — Controles de vista + acciones: ARS/USD, comparar,
+              import/export, guardar, last saved */}
+          <div style={{display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
           {/* ARS / USD toggle — always visible */}
           <div style={{
             display:"flex",alignItems:"center",background:C.card,
@@ -4845,7 +4871,7 @@ letterSpacing:"0.06em",
             </button>
           </div>
 
-          <div style={{width:1,height:24,background:C.border}}/>
+          <div style={{flex:1}}/>
 
           {/* Save local — Kinetic Status Pill: idle → loading (pulso sutil) →
               success (check animado, dibujo de trazo) */}
@@ -4881,6 +4907,7 @@ letterSpacing:"0.06em",
               Last saved: {formatLastSaved(lastSaved)}
             </span>
           )}
+          </div>
         </header>
 
         {activeTab==="eot"&&<EOTView showARS={showARS}/>}
