@@ -195,9 +195,33 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, LineChart, Line, XAx
 //       contenido de 2 filas), y ambas filas tienen flexWrap:"wrap" para
 //       degradar a una tercera línea en pantallas muy angostas en vez de
 //       cortar contenido u obligar a scroll horizontal.
+// v2.45 Expenses → Asignación Objetivo: (1) target por defecto de Crypto
+//       actualizado de 1000 a 500 USD (aplica a meses nuevos; meses ya
+//       guardados conservan el valor que tengan cargado — se edita desde
+//       el input); (2) cuando "Current" está por debajo de "Target", el
+//       input ahora se pinta en verde (borde + texto + negrita) con un ✅,
+//       simétrico al rojo/⚠️ ya existente para cuando lo supera.
+// v2.46 Portfolio: nuevo campo "Movimiento del mes" por sección (Cedears/
+//       Merval/Crypto), debajo de cada tabla — monto con signo (+ entra a
+//       la sección, − sale) + tipo (Aporte/Retiro/Reubicación), en moneda
+//       nativa de la sección. Se resta del delta bruto (saldo actual −
+//       saldo mes anterior) antes de mostrar "Δ vs Mes Anterior", tanto en
+//       cada sección como en el Grand Total — así una reubicación de
+//       capital entre secciones (ej. Crypto→Cedears) ya no se ve como
+//       pérdida/ganancia de rendimiento, solo el movimiento de precio real
+//       queda reflejado. Se persiste en localStorage junto con el resto
+//       del mes (misma clave portfolio:movements:{sección}:{año-mes}).
+//       Solo se muestra el delta ajustado (no el bruto), según lo definido.
+// v2.47 Trading: (1) reordenadas las secciones — Watchlist ahora va después
+//       de Operaciones Activas (antes iba justo después de Portafolio
+//       Actual), afecta tanto la nav rápida de saltos como el orden de
+//       stack de las tablas, ya que ambas leen de TRADING_SECTIONS; (2) el
+//       input de "P. Actual ARS" (Operaciones Activas) y "Precio Actual"
+//       (Merval) ahora se muestran en negrita y con fuente más grande
+//       (14px/700), al ser el campo que más se actualiza en esas tablas.
 // ─────────────────────────────────────────────────────────────────────────────
-const APP_VERSION = "2.44";
-const APP_BUILD   = new Date("2026-08-05").toISOString().slice(0,10);
+const APP_VERSION = "2.47";
+const APP_BUILD   = new Date("2026-08-19").toISOString().slice(0,10);
 
 
 const FONTS = `
@@ -347,6 +371,17 @@ const EMPTY_FX = { mep:"", ccl:"", crypto:"" };
 function cashKey(y,m){ return `portfolio:cash:${y}-${String(m).padStart(2,"0")}`; }
 const EMPTY_CASH = { uala:"", mp:"", fisicos:"", online_banco:"", online_iol:"" };
 function commentKey(section){ return `portfolio:comment:${section}`; }
+
+// Movimientos del mes por sección (Cedears/Pesos-Merval/Crypto) — para
+// distinguir reubicación de capital (aportes/retiros/transferencias entre
+// secciones) de la variación real de precio en "Δ vs Mes Anterior".
+function movementsKey(s,y,m){ return `portfolio:movements:${s}:${y}-${String(m).padStart(2,"0")}`; }
+const EMPTY_MOVEMENT = { amount:"", type:"aporte" }; // type: aporte | retiro | reubicacion
+const MOVEMENT_TYPES = [
+  { key:"aporte",      label:"Aporte",      icon:"⬇️" },
+  { key:"retiro",      label:"Retiro",      icon:"⬆️" },
+  { key:"reubicacion", label:"Reubicación", icon:"🔀" },
+];
 
 // ── "Last saved" — se actualiza automáticamente en CADA guardado, sin
 // importar desde qué sección de la app (Portfolio, Expenses, Trading, Notas,
@@ -1006,7 +1041,7 @@ function ComparePanel({ sectionKey, currentData, prevData, fxRates, showARS, pre
 }
 
 // ── Section table ────────────────────────────────────────────────────────────
-function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCompare, fxRates, showARS, year, month}){
+function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCompare, fxRates, showARS, year, month, movement=EMPTY_MOVEMENT, onMovementChange}){
   const data = Array.isArray(dataProp) ? dataProp : [];
   const meta = SECTION_META[sectionKey];
   const timers = useRef({});
@@ -1362,6 +1397,49 @@ function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCo
           </tbody>
         </table>
       </div>
+
+      {/* Movimiento del mes — aporte/retiro/reubicación de capital, para que
+          "Δ vs Mes Anterior" refleje variación real de precio y no una
+          entrada/salida de plata. Monto en moneda nativa de la sección
+          (ARS para Merval, USD para Cedears/Crypto); el signo indica
+          dirección (+ entra a la sección, − sale de la sección). */}
+      <div style={{
+        display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",
+        padding:"10px 20px",borderTop:`1px solid ${meta.color}20`,
+        background:`${meta.color}06`,
+      }}>
+        <span style={{fontSize:11,color:C.textMuted,fontWeight:600,letterSpacing:"0.04em"}}>
+          Movimiento del mes:
+        </span>
+        <select value={movement.type} onChange={e=>onMovementChange("type",e.target.value)}
+          style={{
+            background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,
+            color:C.textSub,fontFamily:"'DM Sans',sans-serif",fontSize:12,
+            padding:"5px 8px",outline:"none",cursor:"pointer",
+          }}>
+          {MOVEMENT_TYPES.map(mt=>(
+            <option key={mt.key} value={mt.key}>{mt.icon} {mt.label}</option>
+          ))}
+        </select>
+        <input value={movement.amount} onChange={e=>onMovementChange("amount",e.target.value)}
+          placeholder="0" type="text" inputMode="decimal"
+          title="Positivo si entró capital a esta sección, negativo si salió"
+          style={{
+            width:110,background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,
+            color:C.text,fontFamily:"'DM Mono',monospace",fontSize:13,
+            padding:"5px 10px",outline:"none",textAlign:"right",
+          }}
+          onFocus={e=>e.target.style.borderColor=meta.color}
+          onBlur={e=>e.target.style.borderColor=C.border}
+        />
+        <span style={{fontSize:11,color:C.textMuted}}>{meta.currency}</span>
+        {parseFloat(movement.amount) !== 0 && !isNaN(parseFloat(movement.amount)) && (
+          <span style={{fontSize:10,color:C.textMuted,fontStyle:"italic"}}>
+            se resta del Δ vs mes anterior — no cuenta como rendimiento
+          </span>
+        )}
+      </div>
+
       <SectionPieChart
         data={data}
         toDisplay={toDisplay}
@@ -1927,7 +2005,7 @@ const EMPTY_TARGETS = {
   ars:    { current: "", target: "500" },
   cedear: { current: "", target: "7000" },
   merval: { current: "", target: "1000" },
-  crypto: { current: "", target: "1000" },
+  crypto: { current: "", target: "500" },
   usdCurrent: "",
   notas: "",
 };
@@ -2564,7 +2642,14 @@ function ExpensesView() {
             const catColor = cat.color || accentColor;
             const curNum = parseFloat(t.current);
             const tgtNum = parseFloat(t.target);
-            const overTarget = !isNaN(curNum) && !isNaN(tgtNum) && curNum > tgtNum;
+            const overTarget  = !isNaN(curNum) && !isNaN(tgtNum) && curNum > tgtNum;
+            const underTarget = !isNaN(curNum) && !isNaN(tgtNum) && curNum < tgtNum;
+            const statusColor = overTarget ? C.red : underTarget ? C.green : C.border;
+            const statusTitle = overTarget
+              ? `Supera el target (${fmt(tgtNum,0)} USD)`
+              : underTarget
+                ? `Por debajo del target (${fmt(tgtNum,0)} USD)`
+                : undefined;
             return (
               <div key={cat.key} style={{marginBottom:14,paddingLeft:12,borderLeft:`3px solid ${catColor}`}}>
                 <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
@@ -2576,17 +2661,18 @@ function ExpensesView() {
                     <span style={{fontSize:12,color:C.textMuted,minWidth:56}}>Current:</span>
                     <input value={t.current} onChange={e=>updateCategoryTarget(cat.key,"current",e.target.value)}
                       placeholder="0" type="text" inputMode="decimal"
-                      title={overTarget?`Supera el target (${fmt(tgtNum,0)} USD)`:undefined}
+                      title={statusTitle}
                       style={{
                         width:120,background:C.surface,
-                        border:`1px solid ${overTarget?C.red:C.border}`,borderRadius:7,
-                        color:overTarget?C.red:C.text,fontWeight:overTarget?700:400,
+                        border:`1px solid ${overTarget||underTarget?statusColor:C.border}`,borderRadius:7,
+                        color:overTarget||underTarget?statusColor:C.text,fontWeight:overTarget||underTarget?700:400,
                         fontFamily:"'DM Mono',monospace",fontSize:13,padding:"6px 10px",outline:"none",textAlign:"right",
                       }}
                       onFocus={e=>e.target.style.borderColor=catColor}
-                      onBlur={e=>e.target.style.borderColor=overTarget?C.red:C.border}
+                      onBlur={e=>e.target.style.borderColor=overTarget||underTarget?statusColor:C.border}
                     />
-                    {overTarget && <span title={`Supera el target (${fmt(tgtNum,0)} USD)`} style={{fontSize:13}}>⚠️</span>}
+                    {overTarget && <span title={statusTitle} style={{fontSize:13}}>⚠️</span>}
+                    {underTarget && <span title={statusTitle} style={{fontSize:13}}>✅</span>}
                   </label>
                   <label style={{display:"flex",alignItems:"center",gap:8}}>
                     <span style={{fontSize:12,color:C.textMuted,minWidth:48}}>Target:</span>
@@ -3391,11 +3477,12 @@ function TradingActiveTable() {
                       {precioCompraUSD !== null ? `USD ${fmt(precioCompraUSD, 2)}` : "—"}
                     </span>
                   </td>
-                  {/* Precio actual ARS — orange (update after buy) */}
+                  {/* Precio actual ARS — orange (update after buy). Fuente
+                      más grande y bold: es el campo que más se actualiza. */}
                   <td style={{...tdSt,textAlign:"right",background:`${COLOR}06`}}>
                     <input value={row.precioActualARS} onChange={e=>updateRow(row.id,"precioActualARS",e.target.value)}
                       placeholder="0.00" type="text" inputMode="decimal"
-                      style={{...inpSt,textAlign:"right",width:90,color:C.text}}
+                      style={{...inpSt,textAlign:"right",width:90,color:C.text,fontSize:14,fontWeight:700}}
                       onFocus={e=>e.target.style.background=`${COLOR}12`}
                       onBlur={e=>e.target.style.background="transparent"}
                     />
@@ -3695,10 +3782,12 @@ function TradingHistoricTable() {
                         {precioCompraUSD !== null ? `USD ${fmt(precioCompraUSD,2)}` : "—"}
                       </span>
                     </td>
+                    {/* Precio Actual — fuente más grande y bold: es el campo
+                        que más se actualiza, igual que en Operaciones Activas. */}
                     <td style={{...tdSt,textAlign:"right",background:`${COLOR}06`}}>
                       <input value={row.precioActualARS||""} onChange={e=>updateRow(row.id,"precioActualARS",e.target.value)}
                         placeholder="0.00" type="text" inputMode="decimal"
-                        style={{...inpSt,textAlign:"right",width:90}}
+                        style={{...inpSt,textAlign:"right",width:90,fontSize:14,fontWeight:700}}
                         onFocus={e=>e.target.style.background=`${COLOR}12`}
                         onBlur={e=>e.target.style.background="transparent"}
                       />
@@ -4199,8 +4288,8 @@ function WatchlistTable() {
 
 const TRADING_SECTIONS = [
   { key: "portfolio",  label: "Portafolio Actual",    icon: "📋", color: "#06b6d4" },
-  { key: "watchlist",  label: "Watchlist",             icon: "👁️", color: "#f472b6" },
   { key: "active",     label: "Operaciones Activas",  icon: "⚡", color: "#f59e0b" },
+  { key: "watchlist",  label: "Watchlist",             icon: "👁️", color: "#f472b6" },
   { key: "historic",   label: "Histórico de Trades",  icon: "🗂",  color: "#a78bfa" },
   { key: "merval",     label: "Merval",               icon: "📈", color: "#38bdf8" },
 ];
@@ -4331,6 +4420,10 @@ export default function PortfolioTracker(){
   const [fxRates,setFxRates]=useState(EMPTY_FX);
   const [showARS,setShowARS]=useState(false);
   const [cash,setCash]=useState(EMPTY_CASH);
+  // Movimientos del mes (aporte/retiro/reubicación) por sección — permite
+  // separar la reubicación de capital de la variación real de precio en
+  // "Δ vs Mes Anterior". Mismo shape de 3 secciones que data/rows.
+  const [movements,setMovements]=useState({cedears:{...EMPTY_MOVEMENT},pesos:{...EMPTY_MOVEMENT},crypto:{...EMPTY_MOVEMENT}});
   const [activeTab,setActiveTab]=useState("portfolio"); // "portfolio" | "eot"
   const mepInputRef=useRef(null);
   const [mepShake,setMepShake]=useState(false);
@@ -4377,6 +4470,14 @@ export default function PortfolioTracker(){
       const c=localStorage.getItem(cashKey(year,month+1));
       setCash(c?JSON.parse(c):EMPTY_CASH);
     } catch{ setCash(EMPTY_CASH); }
+    const loadedMov={};
+    for(const s of ["cedears","pesos","crypto"]){
+      try{
+        const m=localStorage.getItem(movementsKey(s,year,month+1));
+        loadedMov[s]=m?JSON.parse(m):{...EMPTY_MOVEMENT};
+      } catch{ loadedMov[s]={...EMPTY_MOVEMENT}; }
+    }
+    setMovements(loadedMov);
   },[year,month]);
 
   useEffect(()=>{
@@ -4407,10 +4508,14 @@ export default function PortfolioTracker(){
       catch(e){ console.error(e); }
       try{ localStorage.setItem(cashKey(year,month+1),JSON.stringify(cash)); }
       catch(e){ console.error(e); }
+      for(const s of ["cedears","pesos","crypto"]){
+        try{ localStorage.setItem(movementsKey(s,year,month+1),JSON.stringify(movements[s])); }
+        catch(e){ console.error(e); }
+      }
       setSaving(false);setSavedMsg("Guardado ✓");
       setTimeout(()=>setSavedMsg(""),2500);
     },320);
-  },[data,fxRates,cash,year,month]);
+  },[data,fxRates,cash,movements,year,month]);
 
   function prevM(){if(month===0){setMonth(11);setYear(y=>y-1);}else setMonth(m=>m-1);}
   const prevMonthLabel = `${MONTHS[month===0?11:month-1]} ${month===0?year-1:year}`;
@@ -4422,6 +4527,13 @@ export default function PortfolioTracker(){
       const next = typeof rowsOrUpdater === "function" ? rowsOrUpdater(current) : rowsOrUpdater;
       return { ...d, [key]: Array.isArray(next) ? next : current };
     });
+  }
+
+  function updateMovement(sectionKey, field, value) {
+    setMovements(m => ({
+      ...m,
+      [sectionKey]: { ...(m[sectionKey]||EMPTY_MOVEMENT), [field]: value },
+    }));
   }
 
   // FX helpers for summary cards — mirrors SectionTable logic exactly
@@ -4460,13 +4572,18 @@ export default function PortfolioTracker(){
   const sectionTotals=["cedears","pesos","crypto"].map(s=>{
     const rows=Array.isArray(data[s])?data[s]:[];
     const nativeVal=rows.reduce((a,r)=>a+(calcValue(r).value||0),0);
-    const nativeDelta=nativeVal-(prevMonthNativeTotals[s]||0);
+    // Δ ajustado: al delta bruto (saldo actual − saldo mes anterior) le
+    // restamos el movimiento de capital cargado a mano (aporte/retiro/
+    // reubicación, en moneda nativa de la sección). Así "Δ vs Mes Anterior"
+    // refleja variación real de precio, no una entrada/salida de plata.
+    const movementNative=parseFloat(movements[s]?.amount)||0;
+    const nativeDelta=(nativeVal-(prevMonthNativeTotals[s]||0))-movementNative;
     // sectionToDisplay returns null when rate is missing — keep null so UI shows "—"
     const val=sectionToDisplay(s,nativeVal);
     const deltaDisp=sectionToDisplay(s,nativeDelta);
     const prevValDisp=sectionToDisplay(s,prevMonthNativeTotals[s]||0);
     const deltaPct=(prevValDisp&&prevValDisp>0&&deltaDisp!==null)?(deltaDisp/prevValDisp)*100:null;
-    return{key:s,val:val??0,delta:deltaDisp??0,deltaPct,missingRate:val===null&&nativeVal>0};
+    return{key:s,val:val??0,delta:deltaDisp??0,deltaPct,missingRate:val===null&&nativeVal>0,hasMovement:movementNative!==0};
   });
 
   const totalVal=sectionTotals.reduce((a,s)=>a+s.val,0);
@@ -5206,6 +5323,8 @@ letterSpacing:"0.06em",
                 showARS={showARS}
                 year={year}
                 month={month+1}
+                movement={movements[s]||EMPTY_MOVEMENT}
+                onMovementChange={(field,value)=>updateMovement(s,field,value)}
               />
               {showCompare&&(
                 <ComparePanel
