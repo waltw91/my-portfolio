@@ -1,0 +1,5470 @@
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid } from "recharts";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// VERSION HISTORY
+// v1.0  Initial release — CEDEARs, Merval, Crypto sections, monthly navigation,
+//       localStorage persistence, ARS/USD toggle, FX rates panel
+// v1.1  Added Pesos & Dólares cash panels, Grand Totals row, per-section pie charts
+// v1.2  Added sort buttons (V. Actual / P&L), Compare mode with asset delta cards,
+//       Export/Import JSON, fixed row.reduce bug, fixed cash input focus bug
+// v2.0  Full UI refresh: Nunito font, improved cards, collapsible compare panels
+//       with NUEVO/SALIÓ badges, visual delta bars, section total deltas
+// v2.1  Comment bubble on CEDEARs/Merval/Crypto headers — New, Edit, Delete
+// v2.2  Zero P&L shown in amber, positive green, negative red throughout
+// v2.3  Copiar button — copies tickers, names and buy prices to next month
+// v2.4  CEDEARs prices now in ARS, converted to USD via MEP (not CCL)
+// v2.5  EOT tab: line chart + summary cards + monthly breakdown table
+// v2.6  Expenses tab: flexible categories, inline editing, monthly totals
+// v2.7  Expenses: orange accent, fixed delete (inline confirm replaces window.confirm)
+// v2.8  Expenses: sparkline per item, comment bubble per month cell
+// v2.9  Fix: Dólares→ARS uses MEP (not CCL); Total Invested Crypto uses cryptoRate
+// v2.10 Expenses: comment bubble moved from item cells to month column headers only
+// v2.11 Renamed app to Fintrack; added Dolarización % card in Grand Totals
+// v2.12 Trading tab scaffold: Portfolio, Active Trades, Historic Trades sections
+// v2.13 Trading: Portafolio Actual table with all 9 columns
+// v2.14 Trading: pie chart added to Portafolio Actual (uses % or amount)
+// v2.15 Trading: Operaciones Activas table with all columns + auto-calculations
+// v2.16 Trading: Histórico de Trades table + Cerrar button transfers trade to historic
+// v2.17 Trading: Portafolio Actual / Operaciones Activas / Histórico siempre visibles
+//       y apiladas (con navegación rápida por scroll) en vez de tabs exclusivos
+// v2.18 Trading: Histórico de Trades — agregadas columnas "P. Cierre USD" y
+//       "P/L % USD" (usa MEP Cierre, capturado del MEP Hoy al cerrar el trade)
+// v2.19 Trading: "Días" en Histórico ahora es un valor estático capturado al
+//       cerrar el trade (ya no se recalcula contra la fecha actual)
+// v2.20 Trading — Portafolio Actual: botones de orden (Monto/Tipo/%, asc-desc),
+//       columna "Strategy", "%" ahora se calcula automáticamente sobre el
+//       total del portafolio, y el donut chart usa ese % en vez del monto
+// v2.21 Trading — Portafolio Actual: donut chart ordenado por % (menor a mayor),
+//       "Strategy" ahora es texto libre, autocompletado de "Empresa" según
+//       ticker (mismo lookup que CEDEARs), y color-coding en Mercado/Beta
+//       (1.00 como punto medio)/Sector/Tipo
+// v2.22 Trading — Portafolio Actual: "Ordenar por" ahora incluye Beta y Sector
+//       (se sacó "%"), y se agregó el botón "Notas" en el header (mismo
+//       componente CommentBubble que usan CEDEARs/Merval/Crypto)
+// v2.23 Trading: botón "Notas" agregado también en Operaciones Activas.
+//       Portfolio tab: donut charts de CEDEARs, Merval y Crypto ahora se
+//       ordenan por % de menor a mayor (mismo componente SectionPieChart,
+//       un solo cambio cubre las tres secciones)
+// v2.24 FIX: Exportar solo incluía claves "portfolio:" — Expenses ("expenses:")
+//       y Trading ("trading:") quedaban afuera del backup. Ahora exporta los
+//       tres namespaces. Importar ahora recarga la página (window.location.reload)
+//       para que Expenses y Trading, que mantienen su propio estado interno,
+//       reflejen los datos recién importados sin necesidad de cambiar de tab
+// v2.25 CEDEARs/Merval/Crypto — cambio de modelo de datos: columnas reducidas a
+//       Ticker/Empresa/Cantidad + nuevas Tipo (lista propia por sección) y
+//       Valor ARS/Valor USD (uno cargado a mano según la sección — USD para
+//       CEDEARs/Crypto, ARS para Merval — el otro calculado vía MEP/Dólar
+//       Crypto solo de referencia). Ya no hay P. Compra/P. Actual ni P&L del
+//       mes: el único "P&L" ahora es el delta vs mes anterior por ticker.
+//       CEDEARs pasa a ser nativo USD (antes ARS). "Total Invested" (dashboard
+//       y gráfico EOT) reemplazado por "Δ vs Mes Anterior" (CEDEARs+Merval+Crypto)
+// v2.26 Portfolio: listas de "Tipo" actualizadas — Merval ahora usa Acción/
+//       Liquidez/FCI/Otro, Crypto ahora usa Bitcoin/Ethereum/Altcoin/
+//       Stablecoin/Otro. Agregado botón de orden en la columna "Tipo"
+//       (alfabético, arranca ascendente — de menor a mayor)
+// v2.27 Portfolio: color-coding en "Tipo" para las 3 secciones. CEDEARs ahora
+//       comparte la MISMA paleta que Trading Desk → Portafolio Actual (fuente
+//       única: TYPE_COLORS, con "Growth" agregado). Merval usa color propio
+//       por instrumento (Acción=color de sección, Liquidez/FCI). Crypto usa
+//       colores de marca oficiales para Bitcoin (#F7931A, bitcoin.org) y
+//       Ethereum (#627EEA), más verde para Stablecoin y magenta para Altcoin
+// v2.28 Trading: nueva 4ta sección "Merval" (acciones argentinas / Homebroker).
+//       Estructura inicial: Ticker/Fecha/Cantidad/$ Compra-PPC manuales; Total
+//       PPC, Dif. $/%, W/L y barra de stats (W/L %, Open/Close, Ops. Ab. %)
+//       calculados. Status (Open/Closed) es un toggle manual por fila. A
+//       afinar en próximas rondas según feedback
+// v2.29 Trading → Merval: agregada columna "PPC Actual" (precio unitario actual,
+//       manual). "Precio" pasa a ser "Precio Actual" = Cantidad × PPC Actual
+//       (calculado, mismo patrón simétrico que $ Compra/PPC → Total PPC).
+//       Dif. $ ahora es Precio Actual − Total PPC (antes restaba un precio
+//       unitario contra un total, lo cual no era una magnitud coherente)
+// v2.30 Trading → Merval: agregado ordenamiento (SortButton) en Fecha, Precio
+//       Actual, Dif. $ y Status — Fecha/Status alfabético, Precio Actual/Dif. $
+//       numérico. Ícono de la solapa cambiado de 🇦🇷 a 📈, el mismo emoji que
+//       ya usa "Merval" en la solapa Portfolio (misma identidad visual)
+// v2.31 Trading: nueva sección "Watchlist", ubicada entre Portafolio Actual y
+//       Operaciones Activas. 5 columnas de texto libre sin cálculos (Monitor,
+//       Buy, Comment, Preferred, QQQ Top Holdings), cada una una lista
+//       independiente por fila — sin relación entre columnas de una misma fila
+// v2.32 Trading: (1) Operaciones Activas e Histórico ahora se pueden ordenar
+//       por F. Compra (cronológico, dd/mm/yyyy), P/L % ARS y P/L % USD.
+//       (2) Header "PPC Actual" en Merval ahora en negrita.
+//       (3) Portafolio Actual: eliminada la columna "Target" para darle más
+//       espacio a Empresa/Sector (Sector ensanchado 150→190px).
+//       (4) Portafolio Actual: agregado el promedio de Beta en Totales,
+//       junto a Monto y % (solo promedia filas con Beta cargado)
+// v2.33 Trading → Portafolio Actual: reasignado el ancho de columnas — Ticker
+//       80→60px, Mercado 110→85px, Monto 110→90px (reducidas), Tipo/Strategy
+//       100→125px cada una (ampliadas); Empresa (ancho flexible) también se
+//       beneficia del espacio liberado
+// v2.34 Nuevo: "Last saved: (fecha y hora)" junto al botón Guardar, en el
+//       dashboard principal. Se actualiza SOLO, en vivo, con cualquier
+//       guardado en cualquier sección de la app (Portfolio/Expenses/Trading/
+//       Notas) — se envolvió localStorage.setItem una única vez para no
+//       depender de tocar cada punto de guardado a mano. Al importar un
+//       backup, se conserva el "last saved" que traía ESE archivo (no se
+//       pisa con el momento de la importación), para poder comparar cuál
+//       backup es más reciente entre dispositivos
+// v2.35 Trading → Histórico de Trades: Wins/Losses ahora se calculan sobre
+//       P/L % USD (antes era P/L % ARS). Agregado un tercer contador "W/L X%"
+//       junto a wins/losses, mostrando el ratio wins/(wins+losses)
+// v2.36 Expenses: (1) Agregada fila de "Subtotal" solo para la primera
+//       categoría (Servicios Fijos), sumando sus ítems por mes.
+//       (2) Caja de comentarios ampliada (popover 220→300px, textarea
+//       60→110px) y agregado autoCapitalize="off" al textarea — el texto no
+//       tenía ningún CSS de mayúsculas, así que el problema era la
+//       autocapitalización del teclado del celular, no un estilo.
+//       (3) Columna "Ítem" ensanchada 220→280px para que el texto largo se
+//       expanda menos verticalmente
+// v2.37 Expenses: la etiqueta de la fila de subtotal ahora dice solo
+//       "Subtotal" (antes incluía el nombre de la categoría, ej. "Subtotal
+//       Servicios Fijos")
+// v2.38 Expenses: nueva sección "Asignación Objetivo" debajo de la tabla de
+//       gastos — Current/Target (ambos manuales, numéricos) por ARS/Cedear/
+//       Merval/Crypto, suma automática de los 4 Target ("sum of the above"),
+//       bloque USD con Current en texto libre, y Notas en texto libre.
+//       Se guarda junto con el resto del año (misma clave expenses:{year})
+// v2.39 Asignación Objetivo: (1) la fila calculada al pie ahora muestra la
+//       suma de los 4 "Current" junto a la suma de los 4 "Target" (antes
+//       decía solo "(sum of the above)" sobre el total de Target), para
+//       comparar current vs. target de un vistazo; (2) cada categoría
+//       (ARS/Cedear/Merval/Crypto) tiene ahora un color distintivo (barra
+//       lateral + punto + label coloreado, reutilizando la paleta ya usada
+//       en Portafolio Actual) en vez de texto plano monocromático.
+// v2.40 Motion: integrados los micro-interactions de Kinetic
+//       (kinetics.colorion.co) en botones y controles generales — alcance
+//       acotado a esta categoría, no se tocaron transiciones de otras
+//       superficies (tablas, gráficos, tooltips). (1) "Squish Button":
+//       todos los botones de acción (Guardar, Exportar/Importar, +Agregar
+//       fila, navegación de mes, comentarios, categorías/items de Expenses,
+//       sort buttons de Trading) ahora se comprimen a scale(0.88) al
+//       presionar y vuelven con resorte (cubic-bezier(.34,1.56,.64,1))
+//       en vez del "transition:all" genérico anterior; (2) botones de
+//       eliminar fila (×) en las tablas de Trading usan la misma mecánica
+//       con un scale más sutil; (3) "Toggle Pills": el tab switcher
+//       principal y los 4 grupos de selección persistente (rango EOT,
+//       series EOT, año en Expenses, ARS/USD) suman un pop de escala
+//       1.06 al activarse. Clases nuevas: .kinetic-btn, .kinetic-btn-sm,
+//       .kinetic-chip/.kinetic-chip-on, definidas en el <style> global.
+// v2.41 Motion (Feedback & State): segunda tanda de Kinetic, esta vez sobre
+//       feedback de acciones. (1) "Status Pill / Success Check": el botón
+//       Guardar ahora tiene un delay mínimo perceptible (320ms) para que
+//       el estado "Guardando…" se note, y al completar dibuja un check ✓
+//       animado en vez de solo cambiar de color; (2) "Undo Snackbar": el
+//       botón Limpiar (Cedears/Pesos/Crypto) ya no usa window.confirm —
+//       borra al toque y muestra un snackbar con "Deshacer" por 6s, con
+//       snapshot completo de las filas previas; (3) "Badge Counter": los
+//       6 badges de conteo en Trading (posiciones, operaciones activas,
+//       operaciones Merval, wins/losses/W-L% en histórico) ahora hacen un
+//       pop de resorte cuando el número cambia (remount vía key={n}).
+//       Clases nuevas: .kinetic-check, .kinetic-pulse-dot,
+//       .kinetic-snackbar, .kinetic-badge, definidas en el <style> global.
+// v2.42 Motion (Surface & Motion): tercera y última tanda de Kinetic,
+//       cierra la trilogía (Interaction & Input → Feedback & State →
+//       Surface & Motion). Alcance acotado a funcional, no decorativo.
+//       (1) "Error Shake": al pasar a vista ARS con posiciones en USD
+//       cargadas (Cedears/Crypto) y el dólar MEP sin completar, el campo
+//       de MEP tiembla y hace scroll a la vista — la causa del "—" en los
+//       totales queda obvia al instante; (2) "Skeleton Sweep": el diagrama
+//       del Trading Pipeline (usa JetBrains Mono, que carga por red vía
+//       Google Fonts) ahora muestra un shimmer placeholder hasta que la
+//       fuente resuelve (Font Loading API), evitando el parpadeo con la
+//       fuente de respaldo; (3) "Shine Sweep": las 5 cards de Grand Totals
+//       tienen un brillo diagonal sutil que las cruza al hacer hover.
+//       Evaluados y descartados por no aportar función real en una app de
+//       finanzas: Confetti Burst, Parallax Tilt, Glitch Text, Aurora
+//       Drift, Page Peel, Cursor Spotlight. Clases nuevas: .kinetic-shake,
+//       .kinetic-skel, .kinetic-shine, en el <style> global.
+// v2.43 (1) Portfolio: eliminada la columna "Cantidad" de Cedears/Pesos
+//       (Merval)/Crypto — sin uso actual, no alimentaba ningún cálculo
+//       en esta tabla (Trading → Merval SÍ usa Cantidad para Total PPC,
+//       esa tabla no se tocó). El campo "shares" se mantiene en el shape
+//       de datos por compatibilidad con meses ya guardados, solo se dejó
+//       de mostrar/editar. (2) Expenses → Asignación Objetivo: cuando
+//       "Current" supera a "Target" en una categoría, el input se pinta
+//       en rojo (borde + texto + negrita) y suma un ⚠️ con tooltip
+//       indicando cuánto es el target superado.
+// v2.44 Top nav: reorganizado en dos filas para aliviar la sobrecarga
+//       horizontal (9 grupos de elementos competían por una sola línea de
+//       62px). Fila 1 — identidad/navegación: marca, tab switcher
+//       (Portfolio/EOT/Expenses/Trading), selector de mes (solo visible en
+//       Portfolio). Fila 2 — controles de vista + acciones: toggle
+//       ARS/USD, Comparar mes, Importar/Exportar, Guardar, Last saved.
+//       El header pasa de height fijo a padding vertical (se adapta al
+//       contenido de 2 filas), y ambas filas tienen flexWrap:"wrap" para
+//       degradar a una tercera línea en pantallas muy angostas en vez de
+//       cortar contenido u obligar a scroll horizontal.
+// v2.45 Expenses → Asignación Objetivo: (1) target por defecto de Crypto
+//       actualizado de 1000 a 500 USD (aplica a meses nuevos; meses ya
+//       guardados conservan el valor que tengan cargado — se edita desde
+//       el input); (2) cuando "Current" está por debajo de "Target", el
+//       input ahora se pinta en verde (borde + texto + negrita) con un ✅,
+//       simétrico al rojo/⚠️ ya existente para cuando lo supera.
+// v2.46 Portfolio: nuevo campo "Movimiento del mes" por sección (Cedears/
+//       Merval/Crypto), debajo de cada tabla — monto con signo (+ entra a
+//       la sección, − sale) + tipo (Aporte/Retiro/Reubicación), en moneda
+//       nativa de la sección. Se resta del delta bruto (saldo actual −
+//       saldo mes anterior) antes de mostrar "Δ vs Mes Anterior", tanto en
+//       cada sección como en el Grand Total — así una reubicación de
+//       capital entre secciones (ej. Crypto→Cedears) ya no se ve como
+//       pérdida/ganancia de rendimiento, solo el movimiento de precio real
+//       queda reflejado. Se persiste en localStorage junto con el resto
+//       del mes (misma clave portfolio:movements:{sección}:{año-mes}).
+//       Solo se muestra el delta ajustado (no el bruto), según lo definido.
+// v2.47 Trading: (1) reordenadas las secciones — Watchlist ahora va después
+//       de Operaciones Activas (antes iba justo después de Portafolio
+//       Actual), afecta tanto la nav rápida de saltos como el orden de
+//       stack de las tablas, ya que ambas leen de TRADING_SECTIONS; (2) el
+//       input de "P. Actual ARS" (Operaciones Activas) y "Precio Actual"
+//       (Merval) ahora se muestran en negrita y con fuente más grande
+//       (14px/700), al ser el campo que más se actualiza en esas tablas.
+// ─────────────────────────────────────────────────────────────────────────────
+const APP_VERSION = "2.47";
+const APP_BUILD   = new Date("2026-08-19").toISOString().slice(0,10);
+
+
+const FONTS = `
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600&family=DM+Mono:wght@400;500&family=Nunito:wght@600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+`;
+
+const C = {
+  bg: "#0d0d0f",
+  surface: "#131316",
+  card: "#18181c",
+  cardHover: "#1e1e24",
+  border: "#26262e",
+  accent: "#6c63ff",
+  accentSoft: "rgba(108,99,255,0.15)",
+  green: "#34d399",
+  greenBg: "rgba(52,211,153,0.08)",
+  red: "#f87171",
+  redBg: "rgba(248,113,113,0.08)",
+  amber: "#f59e0b",
+  amberBg: "rgba(245,158,11,0.08)",
+  text: "#f0f0f5",
+  textSub: "#a0a0b8",
+  textMuted: "#5a5a72",
+  cedear: "#f59e0b",
+  pesos: "#38bdf8",
+  crypto: "#a78bfa",
+  arsCash: "#2dd4bf",
+};
+
+const SECTION_META = {
+  cedears: { label: "CEDEARs", sub: "Mercado argentino · USD", currency: "USD", color: C.cedear, emoji: "🏦" },
+  pesos:   { label: "Merval", sub: "Renta local · ARS", currency: "ARS", color: C.pesos,  emoji: "📈" },
+  crypto:  { label: "Crypto",        sub: "Activos digitales · USD", currency: "USD", color: C.crypto, emoji: "⬡" },
+};
+
+const MONTHS = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+
+// ── Lookup tables ────────────────────────────────────────────────────────────
+const CEDEAR_NAMES = {
+  AABA:"Altaba Inc.",AAL:"American Airlines Group Inc",AAP:"Advanced Auto Parts Inc",AAPL:"Apple Inc.",ABBV:"AbbVie Inc.",ABEV:"Ambev S.A.",
+  ABNB:"Airbnb Inc",ABT:"Abbott Labs",ACN:"Accenture",ADBE:"Adobe Systems Incorporated",ADGO:"Adecoagro S.A.",ADI:"Analog Devices",
+  ADP:"Automatic Data Processing Inc.",ADS:"Adidas AG",AEG:"Aegon N.V.",AEM:"Agnico Eagle Mines Limited",AIG:"American International Group (AIG)",
+  "AKO.B":"Embotelladora Andina S.A.",AMAT:"Applied Materials Inc.",AMD:"Advanced Micro Devices, Inc.",AMGN:"Amgen Inc.",AMX:"America Movil",
+  AMZN:"Amazon.Com, Inc.",ANF:"Abercrombie & Fitch Co",AOCA:"Aluminum Corp Of China",ARKK:"ARK INNOVATION",ARM:"ARM Holdings Plc",ASML:"ASML Holdings.",
+  ATAD:"Pjsc Tatneft",AUY:"Yamana Gold Inc.",AVGO:"Broadcom Inc.",AVY:"Avery Dennison Corp.",AXP:"American Express Co",AZN:"Astrazeneca Plc",
+  B:"Barrick Gold Corp",BA:"The Boeing Company","BA.C":"Bank Of America Corporation",BABA:"Alibaba Group Holding Limited",BAK:"Braskem SA",BAS:"Basf SE",
+  BAYN:"Bayer AG",BB:"Blackberry Limited",BBAS3:"Banco do Brasil S.A.",BBD:"Banco Bradesco S.A.",BBV:"Bilbao Vizcaya Argentaria S.A.",BCS:"Barclays Bank Plc",
+  BHP:"Bhp Group Ltd",BIDU:"Baidu, Inc.",BIIB:"Biogen Inc.",BIOX:"Bioceres Crop Solutions Corp.",BITF:"Bitfarms Ltd.",BK:"The Bank Of New York Mellon Corp.",
+  BKNG:"Booking",BKR:"Baker Hughes Co",BMY:"Bristol-Myers Squibb Company",BNG:"Bunge Limited",BP:"BP PCL",BRFS:"BRF S.A.",BRKB:"Berkshire Hathaway Inc.",
+  BSBR:"Banco Santander (Brasil) S.A.",BSN:"Danone",C:"Citigroup Inc",CAAP:"Corporación America Airports S.A.",CAH:"Cardinal Health Inc",CAJ:"Canon Inc",
+  CAR:"Avis Budget Group Inc.",CAT:"Caterpillar Inc",CBRB:"Companhia Brasileira De Dis NPV ADR",CCL:"Carnival",CDE:"Coeur Mining Inc.",
+  CIBR:"NASDAQ Cybersecurity ETF",CL:"Colgate Palmolive Co",COIN:"Coinbase Global Inc",COST:"Costco Wholesale Corp",CRM:"Salesforce Inc.",CRWV:"Coreweave",
+  CS:"Credit Suisse Group",CSCO:"Cisco Systems Inc",CVS:"CVS Health",CVX:"Chevron Corp.",CX:"Cemex S.A.B. de CV",DAL:"Delta Air Lines",
+  DD:"Dupont de Nemours Inc.",DE:"Deere & Co.",DEO:"Diageo PLC",DESP:"Despegar.Com, Corp.",DHR:"Danaher Corp",DIA:"SPDR Dow Jones Industrial",
+  DIS:"Disney Corp.",DOCU:"DocuSign Inc.",DOW:"DOW Inc",DTEA:"Deutsche Telekom Ag",E:"Eni Spa",EA:"Electronic Arts Inc",EBAY:"Ebay Inc.",
+  EBR:"Eletrobras S.A.",EEM:"iShares MSCI Emerging Market",EFX:"Equifax Inc.",ELP:"Companhia Paranaense de Energía - COPEL",EOAN:"E.On Se",
+  EQNR:"Equinor Asa",ERIC:"Lm Ericsson Telephone Co.",ERJ:"Embraer S.A.",ETHA:"iShares Ethereum ETF",ETSY:"Etsy Inc.",EWZ:"iShares MSCI Brazil Cap",
+  F:"Ford Motor Company",FDX:"Fedex Corp",FSLR:"First Solar Inc.",FXI:"iShares China Large-Cap ETF",GE:"General Electric Co.",GFI:"Gold Fields Ltd.",
+  GGB:"Gerdau S.A.",GILD:"Gilead Sciences, Inc.",GLD:"ETF SPDR Gold Trust",GLOB:"Globant S.A.",GLW:"Corning Inc.",GM:"General Motors Co",
+  GOLD:"Barrick Gold Corp",GOOGL:"Alphabet Inc.",GPRK:"Geopark Ltd.",GS:"The Goldman Sachs Group, Inc",GSK:"GSK Plc.",GT:"Goodyear Tire & Rubber co./the",
+  HAL:"Halliburton Co.",HAPV3:"Hapvida Participacoes E Investimentos S.A.",HD:"The Home Depot Inc.",HDB:"Hdfc Bank Limited.",
+  HHPD:"Hon Hai Precision Industry Co. Ltd.",HL:"Hecla Mining Co .",HMC:"Honda Motor Co. Ltd",HMY:"Harmony Gold Mining Company Ltd.",
+  HNPIY:"Huaneng Power Intl",HOG:"Harley-Davidson Inc.",HON:"Honeywell International Inc.",HPQ:"HP Inc",HSBC:"Hsbc Holdings Plc",HSY:"The Hershey Company",
+  HUT:"Hut 8 Mining Corp.",HWM:"Howmet Aerospace Inc.",IBB:"iShares Nasdaq Biotechnology ETF",IBIT:"iShares Bitcoin Trust",
+  IBM:"International Business Machines",IBN:"Icici Bank Ltd.",IEUR:"iShares Core MSCI Europe ETF",IFF:"International Flavors & Fragrances Inc.",
+  INFY:"Infosys Limited",ING:"Ing Groep Nv",INTC:"Intel Corporation",IP:"International Paper Co.",ISRG:"Intuitive Surgical inc",
+  ITUB:"Itaú Unibanco Holding S.A.",IVE:"iShares S&P 500 Value ETF",IVW:"iShares S&P 500 Growth ETF",IWM:"iShares Trust Rusell 2000",
+  JCI:"Johnson Controls International",JD:"Jd.Com, Inc.",JMIA:"Adr Jumia Technologies Ag",JNJ:"Johnson & Johnson",JPM:"J.P. Morgan & Chase Co.",
+  KB:"Kb Financial Group Inc.",KEP:"Korea Electric Power Corp.",KGC:"Kinross Gold Corp",KMB:"Kimberly-Clark Corp.",KO:"The Coca Cola Company",
+  LAAC:"Lithium Americas (Argentina) Corp",LAC:"Lithium Americas Corp",LFC:"China Life Insurance",LKOD:"Pjsc Lukoil",LLY:"Eli Lilly and Company",
+  LMT:"Lockheed Martin Corporation",LND:"Brasilagro - Co Brasileira de Propriedades Agrícolas",LRCX:"Lam Research Corp",LREN3:"Lojas Renner S.A.",
+  LVS:"Las Vegas Sands Corp",LYG:"Lloyds Banking Group Plc",MA:"Mastercard Inc.",MBG:"Mercedes-Benz Group AG",MBT:"Mobile Telesystems",
+  MCD:"Mcdonald'S Corp.",MDLZ:"Mondelez",MDT:"Medtronic Public Limited Company",MELI:"Mercadolibre Inc.",META:"Meta Platforms Inc",
+  MFG:"Mizuho Financial Group",MGLU3:"Magazine Luiza S.A.",MMC:"Marsh & Mclennan Companies Inc.",MMM:"3M Company",MO:"Altria Group Inc.",
+  MOS:"The Mosaic Co",MRK:"Merck & Co. Inc.",MRNA:"Moderna Inc",MRVL:"Marvell Technology Inc",MSFT:"Microsoft Corp.",MSI:"Motorola Solutions, Inc.",
+  MSTR:"Microstrategy Inc Cl A New",MU:"Micron Technology Inc",MUFG:"Mitsubishi Ufj Financial Group",MUX:"McEwen Mining Inc",NEC1:"Nec Corporation",
+  NEM:"Newmont Corporation",NFLX:"Netflix, Inc.",NG:"Novagold Resources INC.",NGG:"National Grid Plc",NIO:"NIO Inc.",NKE:"Nike Inc.",
+  NLM:"Novolipetsk Steel PJSC",NMR:"Nomura Holdings, Inc",NOKA:"Nokia Corporation",NSAN:"Nissan Motor Co., Ltd",NTCO:"Natura & Co Holding S.A.",
+  NTES:"Netease, Inc",NU:"Nubank",NUE:"Nucor Corp",NVDA:"Nvidia Corporation",NVS:"Novartis Ag",NXE:"Nexgen Energy LTD",ORAN:"Orange S.A.",
+  ORCL:"Oracle Corporation",ORLY:"O'reilly Automotive Inc",OXY:"Occidental Petroleum Corp.",PAAS:"Pan American Silver Corp.",
+  PAC:"Grupo Aeroportuario del Pacifico",PAGS:"Pagseguro Digital Ltd",PANW:"Palo Alto Networks Inc",PBI:"Pitney Bowes Inc",
+  PBR:"Petrobras (ADR)",PCAR:"Paccar Inc.",PCRF:"Panasonic Corporation",PEP:"Pepsico Inc",PFE:"Pfizer Inc.",PG:"Procter & Gamble",
+  PHG:"Koninklijke Philips N.V.",PINS:"Pinterest",PKS:"Posco Holdings Inc.",PLTR:"Palantir Technologies Inc",PM:"Philip Morris International",
+  PRIO3:"Petro Rio S.A.",PSO:"Pearson Plc",PSX:"Phillips 66",PTR:"Petrochina Co Ltd",PYPL:"Paypal Holdings, Inc.",QCOM:"Qualcomm Inc.",
+  QQQ:"Invesco QQQ Trust",RACE:"Ferrari",RBLX:"Roblox Corp.",RIO:"Rio Tinto Plc",RIOT:"Riot Platforms",ROKU:"Roku",ROST:"Ross Stores, Inc.",
+  RTX:"Raytheon Technologies Corp",SAN:"Banco Santander S.A",SAP:"Sap Se",SATL:"Satellogic Inc.",SBS:"Paulo–Sabesp",SBUX:"Starbucks Corporation",
+  SCCO:"Southern Copper Corp",SCHW:"Charles Schwab",SDA:"SunCar Technology Group Inc",SE:"Sea Ltd.",SH:"ProShares Short S&P500",
+  SHEL:"Royal Dutch Shell Plc",SHOP:"Shopify Inc.",SHPW:"Shapeways Holdings Inc",SI:"Silvergate Bancorp",SID:"Companhia Siderúrgica Nacional",
+  SIEGY:"Siemens Ag Adr",SLB:"Schlumberger Ltd",SMSN:"Samsung Electronics Co. Ltd.",SNA:"Snap-On Inc",SNAP:"Snap Inc.",SNOW:"Snowflake Inc.",
+  SNP:"China Petroleum & Chem",SONY:"Sony Group Corporation",SPCE:"Virgin Galactic",SPGI:"S&P Global Inc",SPOT:"Spotify Technology S.A.",
+  SPY:"SPDR S&P 500",SQ:"Square Inc.",STLA:"Stellantis",STNE:"StoneCo Ltd",SUZ:"Suzano Papel E Celulose S.A.",SWKS:"Skyworks Solutions",
+  SYY:"Sysco Corp.",T:"AT&T Inc.",TCOM:"TRIP.COM Group Ltd.",TEFO:"Telefonica S.A.",TEN:"Tenaris",TGT:"Target Corporation",
+  TIIAY:"Telecom Italia S.P.A. Ordinary Shares",TIMB:"Tim Participações S.A.",TJX:"TJX Companies Inc/The",TM:"Toyota Motor Corporation",
+  TMO:"Thermo Fisher Scientific Inc.",TMUS:"T-mobile",TRIP:"Tripadvisor, Inc.",TRVV:"The Travelers Cos. Inc.",TSLA:"Tesla, Inc.",
+  TSM:"Taiwan Semiconductor Manufacturing",TTE:"TotalEnergies SE",TWTR:"Twitter, Inc.",TXN:"Texas Instruments Inc",TXR:"Ternium S.A.",
+  UAL:"United Airlines Holdings Inc.",UBER:"Uber Technologies Inc.",UNH:"UnitedHealth Group Inc.",UNP:"Union Pacific Corp.",URA:"Global X Uranium ETF",
+  URBN:"Urban Outfitters INC.",USB:"U.S. Bancorp",V:"Visa Inc",VALE:"Vale S.A.",VEA:"Vanguard Developed Markets ETF",VIST:"Vista Energy S.A.B. de C.V.",
+  VIV:"Telefônica Brasil S.A.",VOD:"Vodafone Group Plc",VRSN:"Verisign, Inc.",VZ:"Verizon Communications Inc.",WBA:"Walgreens Boots Alliance Inc.",
+  WBO:"Weibo Corporation",WFC:"Wells Fargo & Co.",WMT:"Walmart Inc.",X:"United States Steel Corp.",XLB:"Materials Select Sector SPDR Fund",
+  XLC:"Communication Services Select Sector SPDR Fund",XLE:"Energy Select Sector SPDR Fund",XLF:"Financial Select Sector SPDR Fund",
+  XLI:"Industrial Select Sector SPDR Fund",XLK:"Technology Select Sector SPDR Fund",XLP:"Consumer Staples Select Sector SPDR Fund",
+  XLRE:"Real Estate Select Sector SPDR Fund",XLU:"Utilities Select Sector SPDR Fund",XLV:"Health Care Select Sector SPDR Fund",
+  XLY:"Consumer Discretionary Select Sector SPDR Fund",XOM:"Exxon Mobil Corporation",SLV:"iShares Silver Trust",XP:"XP Inc",XROX:"Xerox Holding Corporation",
+  ZM:"Zoom Video Communications Inc."
+};
+
+const PESOS_NAMES = {
+  AL30:"Bono AL30 · Ley Argentina",AL35:"Bono AL35 · Ley Argentina",
+  GD30:"Bono GD30 · Ley Nueva York",GD35:"Bono GD35 · Ley Nueva York",
+  LECAP:"Letras Capitalizables",LECER:"Letras CER",CER:"Bono CER",
+  TY30P:"Boncer 2030",FCI:"Fondo Común de Inversión",PF:"Plazo Fijo",
+  CAAP:"Aeropuertos Argentina",CEPU:"Central Puerto",
+  COME:"Soc. Comercial del Plata",EDN:"Edenor",METR:"MetroGAS",
+  DGCU2:"Distribuidora Gas Cuyana",SAMI:"Seguros Sancor",
+  PAMP:"Pampa Energía",TGSU2:"Transportadora de Gas del Sur",TGNO4: "Transportadora de Gas del Norte",
+  ALUA:"Aluar",GGAL:"Banco Galicia",YPFD:"YPF S.A.",TRAN:"Transener", BYMA:"Bolsas y Mercados Arg.",
+  SUPV:"Banco Supervielle", BMA:"Banco Macro", IRSA:"IRSA Inversiones", CRES: "Cresud S.A.",
+  LIQ: "Liquidez"
+};
+
+// ── Add your crypto tickers here ────────────────────────────────────────────
+const CRYPTO_NAMES = {
+  BTC:  "Bitcoin",
+  ETH:  "Ethereum",
+  USDT: "Tether",
+  BNB:  "BNB",
+  SOL:  "Solana",
+  XRP:  "XRP",
+  USDC: "USD Coin",
+  ADA:  "Cardano",
+  AVAX: "Avalanche",
+  DOGE: "Dogecoin",
+  DOT:  "Polkadot",
+  MATIC:"Polygon",
+  LINK: "Chainlink",
+  NEAR: "Near Protocol",
+  PAXG: "PAX Gold",
+  FET: "Fetch.AI",
+  UNI:  "Uniswap",
+  LTC:  "Litecoin",
+};
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function makeKey(s,y,m){ return `portfolio:${s}:${y}-${String(m).padStart(2,"0")}`; }
+function fxKey(y,m){ return `portfolio:fx:${y}-${String(m).padStart(2,"0")}`; }
+const EMPTY_FX = { mep:"", ccl:"", crypto:"" };
+function cashKey(y,m){ return `portfolio:cash:${y}-${String(m).padStart(2,"0")}`; }
+const EMPTY_CASH = { uala:"", mp:"", fisicos:"", online_banco:"", online_iol:"" };
+function commentKey(section){ return `portfolio:comment:${section}`; }
+
+// Movimientos del mes por sección (Cedears/Pesos-Merval/Crypto) — para
+// distinguir reubicación de capital (aportes/retiros/transferencias entre
+// secciones) de la variación real de precio en "Δ vs Mes Anterior".
+function movementsKey(s,y,m){ return `portfolio:movements:${s}:${y}-${String(m).padStart(2,"0")}`; }
+const EMPTY_MOVEMENT = { amount:"", type:"aporte" }; // type: aporte | retiro | reubicacion
+const MOVEMENT_TYPES = [
+  { key:"aporte",      label:"Aporte",      icon:"⬇️" },
+  { key:"retiro",      label:"Retiro",      icon:"⬆️" },
+  { key:"reubicacion", label:"Reubicación", icon:"🔀" },
+];
+
+// ── "Last saved" — se actualiza automáticamente en CADA guardado, sin
+// importar desde qué sección de la app (Portfolio, Expenses, Trading, Notas,
+// etc.). En vez de tocar uno por uno los ~9 puntos donde la app llama a
+// localStorage.setItem, envolvemos el método una única vez acá: así ningún
+// guardado futuro puede "olvidarse" de actualizar el timestamp.
+const LAST_SAVED_KEY = "portfolio:lastSaved";
+const LAST_SAVED_EVENT = "portfolio:saved";
+
+(function wrapLocalStorageSetItem() {
+  if (typeof window === "undefined" || !window.localStorage || window.localStorage.__lastSavedWrapped) return;
+  const original = window.localStorage.setItem.bind(window.localStorage);
+  window.localStorage.setItem = function(key, value) {
+    original(key, value);
+    // No re-tocar el timestamp cuando la escritura ES el propio timestamp
+    // (esto pasa al importar un backup: queremos conservar el "last saved"
+    // que traía ESE archivo, no pisarlo con el momento de la importación).
+    if (key !== LAST_SAVED_KEY) {
+      original(LAST_SAVED_KEY, new Date().toISOString());
+      try { window.dispatchEvent(new window.Event(LAST_SAVED_EVENT)); } catch {}
+    }
+  };
+  window.localStorage.__lastSavedWrapped = true;
+})();
+
+function getLastSaved() {
+  try {
+    const raw = localStorage.getItem(LAST_SAVED_KEY);
+    if (!raw) return null;
+    const d = new Date(raw);
+    return isNaN(d) ? null : d;
+  } catch { return null; }
+}
+
+function formatLastSaved(d) {
+  if (!d) return null;
+  const pad = n => String(n).padStart(2, "0");
+  return `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()}, ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+// Cada fila ahora es un snapshot mensual: cantidad + tipo + un único "valor"
+// nativo cargado a mano (USD para CEDEARs/Crypto, ARS para Merval). El otro
+// valor de moneda se calcula al vuelo vía FX solo como referencia — no se guarda.
+function emptyRow(){ return {id:Date.now()+Math.random(),ticker:"",name:"",shares:"",type:"",valor:""}; }
+
+// "Tipo" — lista propia por sección, adaptada a la naturaleza de cada mercado
+const CEDEAR_TYPES = ["Core ETF","Growth","Dividend","Defensive","Trade","Other"];
+const MERVAL_TYPES = ["Acción","Liquidez","FCI","Otro"];
+const CRYPTO_TYPES = ["Bitcoin","Ethereum","Altcoin","Stablecoin","Otro"];
+const SECTION_TYPE_OPTIONS = { cedears: CEDEAR_TYPES, pesos: MERVAL_TYPES, crypto: CRYPTO_TYPES };
+
+// Colores de "Tipo" — CEDEARs comparte esta MISMA paleta con Trading Desk
+// (Portafolio Actual), ya que ambas secciones usan la taxonomía de CEDEARs.
+// Fuente única de verdad: si se ajusta un color acá, se refleja en los dos lugares.
+const TYPE_COLORS = {
+  "Core ETF":  "#06b6d4", // cian — el color de la sección, para el "core" de la cartera
+  "Growth":    "#818cf8", // índigo — crecimiento/momentum
+  "Defensive": "#34d399", // verde — bajo riesgo
+  "Dividend":  "#f59e0b", // ámbar/dorado — income
+  "Trade":     "#fb923c", // naranja — posiciones activas / mayor rotación
+  "Other":     "#9ca3af", // gris neutro
+};
+function colorForType(type) { return type ? (TYPE_COLORS[type] || C.textMuted) : C.textMuted; }
+
+// Merval — criterio propio: Acción usa el color de la sección (posición núcleo),
+// Liquidez/FCI reflejan el perfil de riesgo del instrumento.
+const MERVAL_TYPE_COLORS = {
+  "Acción":   C.pesos,    // celeste — el color de la sección, para la posición núcleo (renta variable)
+  "Liquidez": "#34d399",  // verde — cauciones/money market, bajo riesgo
+  "FCI":      "#a78bfa",  // violeta — vehículo de inversión diversificado/gestionado
+  "Otro":     "#9ca3af",  // gris neutro
+};
+function colorForMervalType(type) { return type ? (MERVAL_TYPE_COLORS[type] || C.textMuted) : C.textMuted; }
+
+// Crypto — Bitcoin y Ethereum usan sus colores de marca oficiales/más reconocidos;
+// Altcoin y Stablecoin siguen la convención de la app (verde = estable/bajo riesgo).
+const CRYPTO_TYPE_COLORS = {
+  "Bitcoin":    "#F7931A", // "Bitcoin Orange" — color de marca oficial (bitcoin.org)
+  "Ethereum":   "#627EEA", // el tono más citado en exchanges/CoinMarketCap para ETH
+  "Altcoin":    "#e879f9", // magenta — cesta diversa de otras monedas
+  "Stablecoin": "#34d399", // verde — estabilidad/bajo riesgo
+  "Otro":       "#9ca3af", // gris neutro
+};
+function colorForCryptoType(type) { return type ? (CRYPTO_TYPE_COLORS[type] || C.textMuted) : C.textMuted; }
+
+// Lookup único: qué función de color usar según la sección
+const SECTION_TYPE_COLOR_FN = { cedears: colorForType, pesos: colorForMervalType, crypto: colorForCryptoType };
+
+function calcValue(row){
+  const v = parseFloat(row.valor);
+  return { value: (!isNaN(v) && v !== 0) ? v : null };
+}
+
+function fmt(n,dec=2){
+  if(n===null||n===undefined||isNaN(n)) return "—";
+  return n.toLocaleString("es-AR",{minimumFractionDigits:dec,maximumFractionDigits:dec});
+}
+function fmtPct(n){
+  if(n===null||n===undefined||isNaN(n)) return "—";
+  return (n>=0?"+":"")+fmt(n)+"%";
+}
+
+// Returns green/amber/red based on value — zero gets amber
+function pnlColor(val) {
+  if (val === null || val === undefined || isNaN(val)) return C.textMuted;
+  if (val === 0 || Object.is(val, 0)) return C.amber;
+  return val > 0 ? C.green : C.red;
+}
+function pnlBg(val) {
+  if (val === null || val === undefined || isNaN(val)) return "transparent";
+  if (val === 0 || Object.is(val, 0)) return C.amberBg;
+  return val > 0 ? C.greenBg : C.redBg;
+}
+
+function Badge({children,color,title}){
+  return <span title={title} style={{display:"inline-block",padding:"2px 9px",borderRadius:99,background:`${color}18`,color,fontSize:11,fontWeight:600,letterSpacing:"0.04em",fontFamily:"'DM Mono',monospace"}}>{children}</span>;
+}
+
+function PnLCell({val,pct,currency}){
+  if(val===null) return <span style={{color:C.textMuted,fontSize:12}}>—</span>;
+  const col=pnlColor(val), bg=pnlBg(val);
+  return (
+    <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:3}}>
+      <span style={{color:col,fontWeight:600,fontSize:12,fontFamily:"'DM Mono',monospace",background:bg,padding:"2px 8px",borderRadius:6}}>{fmtPct(pct)}</span>
+      <span style={{color:col,fontSize:11,opacity:0.75,fontFamily:"'DM Mono',monospace"}}>{val>0?"+":""}{fmt(val)} {currency}</span>
+    </div>
+  );
+}
+
+// ── Comment bubble ───────────────────────────────────────────────────────────
+function CommentBubble({ sectionKey, color }) {
+  const storageKey = commentKey(sectionKey);
+  const [open, setOpen]       = React.useState(false);
+  const [comment, setComment] = React.useState(() => {
+    try { return localStorage.getItem(storageKey) || ""; } catch { return ""; }
+  });
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft]     = React.useState("");
+  const bubbleRef             = React.useRef(null);
+
+  // Close on outside click
+  React.useEffect(() => {
+    if (!open) return;
+    function handle(e) {
+      if (bubbleRef.current && !bubbleRef.current.contains(e.target)) {
+        setOpen(false);
+        setEditing(false);
+      }
+    }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [open]);
+
+  function handleNew() {
+    setDraft("");
+    setEditing(true);
+  }
+  function handleEdit() {
+    setDraft(comment);
+    setEditing(true);
+  }
+  function handleSave() {
+    const trimmed = draft.trim();
+    setComment(trimmed);
+    try { localStorage.setItem(storageKey, trimmed); } catch {}
+    setEditing(false);
+  }
+  function handleDelete() {
+    setComment("");
+    try { localStorage.removeItem(storageKey); } catch {}
+    setEditing(false);
+    setOpen(false);
+  }
+  function handleCancel() {
+    setEditing(false);
+    setDraft("");
+  }
+
+  const hasComment = comment.length > 0;
+
+  return (
+    <div style={{position:"relative",display:"inline-flex"}} ref={bubbleRef}>
+      {/* Trigger button */}
+      <button className="kinetic-btn"
+        onClick={()=>{ setOpen(o=>!o); setEditing(false); }}
+        title={hasComment ? "Ver comentario" : "Agregar comentario"}
+        style={{
+          background: hasComment ? `${color}18` : "transparent",
+          border: `1px solid ${hasComment ? color+"60" : C.border}`,
+          color: hasComment ? color : C.textMuted,
+          borderRadius: 8, padding:"6px 9px", cursor:"pointer",
+          fontSize:14, lineHeight:1,
+          display:"flex", alignItems:"center", gap:5,
+        }}
+        onMouseEnter={e=>{e.currentTarget.style.borderColor=color;e.currentTarget.style.color=color;e.currentTarget.style.background=`${color}18`;}}
+        onMouseLeave={e=>{
+          e.currentTarget.style.borderColor=hasComment?color+"60":C.border;
+          e.currentTarget.style.color=hasComment?color:C.textMuted;
+          e.currentTarget.style.background=hasComment?`${color}18`:"transparent";
+        }}
+      >
+        💬
+        {hasComment && (
+          <span style={{
+            width:6, height:6, borderRadius:"50%",
+            background:color, flexShrink:0,
+          }}/>
+        )}
+      </button>
+
+      {/* Popover */}
+      {open && (
+        <div style={{
+          position:"absolute", top:"calc(100% + 8px)", right:0,
+          width:280, background:C.card,
+          border:`1px solid ${color}40`,
+          borderRadius:12, boxShadow:"0 8px 32px #00000070",
+          zIndex:500, overflow:"hidden",
+          animation:"fadeUp 0.18s ease forwards",
+        }}>
+          {/* Popover header */}
+          <div style={{
+            padding:"10px 14px",
+            background:`linear-gradient(90deg,${color}14,transparent)`,
+            borderBottom:`1px solid ${color}20`,
+            display:"flex", alignItems:"center", justifyContent:"space-between",
+          }}>
+            <span style={{fontSize:11,fontWeight:600,color,letterSpacing:"0.07em",textTransform:"uppercase"}}>
+              Nota
+            </span>
+            <button onClick={()=>{setOpen(false);setEditing(false);}} style={{
+              background:"transparent",border:"none",color:C.textMuted,
+              cursor:"pointer",fontSize:14,lineHeight:1,padding:"0 2px",
+            }}>×</button>
+          </div>
+
+          {/* Content */}
+          <div style={{padding:"12px 14px"}}>
+            {editing ? (
+              <textarea
+                autoFocus
+                value={draft}
+                onChange={e=>setDraft(e.target.value)}
+                placeholder="Escribí tu comentario..."
+                style={{
+                  width:"100%", minHeight:80, background:C.surface,
+                  border:`1px solid ${color}40`, borderRadius:8,
+                  color:C.text, fontFamily:"'DM Sans',sans-serif",
+                  fontSize:13, padding:"8px 10px", outline:"none",
+                  resize:"vertical", boxSizing:"border-box",
+                  transition:"border-color 0.2s",
+                }}
+                onFocus={e=>e.target.style.borderColor=color}
+                onBlur={e=>e.target.style.borderColor=`${color}40`}
+              />
+            ) : (
+              <div style={{
+                fontSize:13, color: hasComment ? C.text : C.textMuted,
+                lineHeight:1.6, fontStyle: hasComment ? "normal" : "italic",
+                minHeight:36,
+              }}>
+                {hasComment ? comment : "Sin comentarios. Hacé clic en \"Nueva\" para agregar."}
+              </div>
+            )}
+          </div>
+
+          {/* Action buttons */}
+          <div style={{
+            padding:"10px 14px",
+            borderTop:`1px solid ${C.border}`,
+            display:"flex", gap:6,
+          }}>
+            {editing ? (
+              <>
+                <button className="kinetic-btn" onClick={handleSave} style={{
+                  flex:1, background:`${color}20`, border:`1px solid ${color}60`,
+                  color, borderRadius:7, padding:"6px 0",
+                  cursor:"pointer", fontSize:12, fontWeight:600,
+                  fontFamily:"'DM Sans',sans-serif",
+                }}
+                  onMouseEnter={e=>e.currentTarget.style.background=`${color}35`}
+                  onMouseLeave={e=>e.currentTarget.style.background=`${color}20`}
+                >✓ Guardar</button>
+                <button className="kinetic-btn" onClick={handleCancel} style={{
+                  flex:1, background:"transparent", border:`1px solid ${C.border}`,
+                  color:C.textMuted, borderRadius:7, padding:"6px 0",
+                  cursor:"pointer", fontSize:12,
+                  fontFamily:"'DM Sans',sans-serif",
+                }}
+                  onMouseEnter={e=>{e.currentTarget.style.borderColor=C.textMuted;e.currentTarget.style.color=C.text;}}
+                  onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textMuted;}}
+                >Cancelar</button>
+              </>
+            ) : (
+              <>
+                <button className="kinetic-btn" onClick={handleNew} style={{
+                  flex:1, background:`${color}14`, border:`1px solid ${color}40`,
+                  color, borderRadius:7, padding:"6px 0",
+                  cursor:"pointer", fontSize:12, fontWeight:600,
+                  fontFamily:"'DM Sans',sans-serif",
+                }}
+                  onMouseEnter={e=>e.currentTarget.style.background=`${color}28`}
+                  onMouseLeave={e=>e.currentTarget.style.background=`${color}14`}
+                >+ Nueva</button>
+                <button className="kinetic-btn" onClick={handleEdit} disabled={!hasComment} style={{
+                  flex:1, background:"transparent", border:`1px solid ${C.border}`,
+                  color: hasComment ? C.textSub : C.textMuted,
+                  borderRadius:7, padding:"6px 0",
+                  cursor: hasComment ? "pointer" : "default",
+                  fontSize:12, fontFamily:"'DM Sans',sans-serif",
+                  opacity: hasComment ? 1 : 0.4,
+                }}
+                  onMouseEnter={e=>{if(hasComment){e.currentTarget.style.borderColor=C.accent;e.currentTarget.style.color=C.accent;}}}
+                  onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=hasComment?C.textSub:C.textMuted;}}
+                >✎ Editar</button>
+                <button className="kinetic-btn" onClick={handleDelete} disabled={!hasComment} style={{
+                  flex:1, background:"transparent", border:`1px solid ${C.border}`,
+                  color: hasComment ? C.textMuted : C.textMuted,
+                  borderRadius:7, padding:"6px 0",
+                  cursor: hasComment ? "pointer" : "default",
+                  fontSize:12, fontFamily:"'DM Sans',sans-serif",
+                  opacity: hasComment ? 1 : 0.4,
+                }}
+                  onMouseEnter={e=>{if(hasComment){e.currentTarget.style.borderColor=C.red;e.currentTarget.style.color=C.red;e.currentTarget.style.background=C.redBg;}}}
+                  onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textMuted;e.currentTarget.style.background="transparent";}}
+                >🗑 Borrar</button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Per-section donut chart ──────────────────────────────────────────────────
+function SectionPieChart({ data, toDisplay, meta, noFx, dispCurrency }) {
+  const rows = Array.isArray(data) ? data : [];
+  const chartData = rows
+    .map(r => {
+      const { value } = calcValue(r);
+      const disp = toDisplay(value);
+      return { name: r.ticker || "—", value: disp && disp > 0 ? disp : 0 };
+    })
+    .filter(d => d.value > 0)
+    .sort((a, b) => a.value - b.value); // menor a mayor — ordenar por monto equivale a ordenar por % (misma proporción del total)
+
+  if (chartData.length === 0) return null;
+
+  const total = chartData.reduce((s, d) => s + d.value, 0);
+
+  // Generate a palette of shades derived from the section color
+  function hexToRgb(hex) {
+    const r = parseInt(hex.slice(1,3),16);
+    const g = parseInt(hex.slice(3,5),16);
+    const b = parseInt(hex.slice(5,7),16);
+    return [r,g,b];
+  }
+  function shadeColor(hex, factor) {
+    const [r,g,b] = hexToRgb(hex);
+    const blend = (c, f) => Math.round(c * f + (f < 1 ? 255*(1-f)*0.15 : 0));
+    const nr = Math.min(255, blend(r, factor));
+    const ng = Math.min(255, blend(g, factor));
+    const nb = Math.min(255, blend(b, factor));
+    return `rgb(${nr},${ng},${nb})`;
+  }
+
+  const PALETTE = chartData.map((_, i) => {
+    const factor = 0.5 + (i / Math.max(chartData.length - 1, 1)) * 0.6;
+    return shadeColor(meta.color, factor);
+  });
+
+  const [active, setActive] = React.useState(null);
+
+  return (
+    <div style={{
+      width: "100%",
+      background: C.card, border: `1px solid ${C.border}`,
+      borderTop: "none",
+      padding: "16px 20px",
+      display: "flex", flexDirection: "row", alignItems: "center", gap: 24,
+      flexWrap: "wrap",
+    }}>
+      {/* Donut */}
+      <div style={{position:"relative",width:160,height:160,flexShrink:0}}>
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie
+              data={chartData}
+              cx="50%" cy="50%"
+              innerRadius={38} outerRadius={58}
+              paddingAngle={2} dataKey="value"
+              strokeWidth={0}
+              onMouseEnter={(_,i)=>setActive(i)}
+              onMouseLeave={()=>setActive(null)}
+            >
+              {chartData.map((_, i) => (
+                <Cell
+                  key={i}
+                  fill={PALETTE[i]}
+                  opacity={active===null||active===i?1:0.45}
+                  style={{cursor:"pointer",transition:"opacity 0.2s"}}
+                />
+              ))}
+            </Pie>
+            <Tooltip
+              contentStyle={{
+                background:C.surface,border:`1px solid ${C.border}`,
+                borderRadius:8,fontFamily:"'DM Mono',monospace",fontSize:11,
+                boxShadow:"0 4px 20px #00000060",
+              }}
+              formatter={(v,n)=>[`${fmt(v)} ${dispCurrency}`,n]}
+              labelStyle={{color:C.textMuted}}
+            />
+          </PieChart>
+        </ResponsiveContainer>
+        {/* Center label */}
+        <div style={{
+          position:"absolute",top:"50%",left:"50%",
+          transform:"translate(-50%,-50%)",
+          textAlign:"center",pointerEvents:"none",
+        }}>
+          {active!==null ? (
+            <>
+              <div style={{fontFamily:"'DM Mono',monospace",fontSize:11,fontWeight:600,color:meta.color,lineHeight:1}}>
+                {chartData[active].name}
+              </div>
+              <div style={{fontFamily:"'DM Mono',monospace",fontSize:10,color:C.textMuted,marginTop:2}}>
+                {fmt((chartData[active].value/total)*100,1)}%
+              </div>
+            </>
+          ) : (
+            <div style={{fontFamily:"'DM Mono',monospace",fontSize:10,color:C.textMuted}}>{chartData.length} pos.</div>
+          )}
+        </div>
+      </div>
+
+      {/* Legend */}
+      <div style={{flex:1,minWidth:200,display:"flex",flexDirection:"column",gap:6}}>
+        <div style={{color:C.textMuted,fontSize:10,fontWeight:600,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:4}}>Distribución</div>
+        {chartData.map((d,i)=>{
+          const pct = (d.value/total)*100;
+          return (
+            <div key={i}
+              onMouseEnter={()=>setActive(i)}
+              onMouseLeave={()=>setActive(null)}
+              style={{
+                display:"flex",alignItems:"center",gap:7,
+                opacity:active===null||active===i?1:0.4,
+                transition:"opacity 0.2s",cursor:"default",
+              }}
+            >
+              <div style={{width:8,height:8,borderRadius:2,background:PALETTE[i],flexShrink:0}}/>
+              <span style={{fontFamily:"'DM Mono',monospace",fontSize:11,color:meta.color,fontWeight:600,width:44,flexShrink:0}}>
+                {d.name}
+              </span>
+              <div style={{flex:1,height:4,background:C.border,borderRadius:99,overflow:"hidden"}}>
+                <div style={{width:`${pct}%`,height:"100%",background:PALETTE[i],borderRadius:99}}/>
+              </div>
+              <span style={{fontFamily:"'DM Mono',monospace",fontSize:10,color:C.textMuted,width:32,textAlign:"right",flexShrink:0}}>
+                {fmt(pct,1)}%
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Sort button ──────────────────────────────────────────────────────────────
+function SortButton({ active, dir, onClick }) {
+  return (
+    <button onClick={onClick} style={{
+      background: "transparent", border: "none", cursor: "pointer",
+      padding: "0 0 0 4px", lineHeight: 1, display: "inline-flex",
+      flexDirection: "column", gap: 1, verticalAlign: "middle",
+      opacity: active ? 1 : 0.3, transition: "opacity 0.2s",
+    }}>
+      <span style={{ fontSize: 7, color: active && dir === "asc"  ? "#fff" : "#888", lineHeight: 1 }}>▲</span>
+      <span style={{ fontSize: 7, color: active && dir === "desc" ? "#fff" : "#888", lineHeight: 1 }}>▼</span>
+    </button>
+  );
+}
+
+// ── Comparison summary panel ─────────────────────────────────────────────────
+function ComparePanel({ sectionKey, currentData, prevData, fxRates, showARS, prevMonthLabel }) {
+  const meta = SECTION_META[sectionKey];
+  const prev = Array.isArray(prevData) ? prevData : [];
+  const curr = Array.isArray(currentData) ? currentData : [];
+
+  // FX helpers — same logic as SectionTable
+  const FX_KEY_MAP = { cedears:"mep", pesos:"mep", crypto:"crypto" };
+  const nativeIsARS = meta.currency === "ARS";
+  const dispCurrency = showARS ? "ARS" : "USD";
+  const fxRate = parseFloat(fxRates?.[FX_KEY_MAP[sectionKey]]) || null;
+  const needsConversion = showARS !== nativeIsARS;
+  function toDisplay(v) {
+    if (v === null || v === undefined) return null;
+    if (!needsConversion) return v;
+    if (!fxRate) return null;
+    if (showARS && !nativeIsARS) return v * fxRate;
+    if (!showARS && nativeIsARS) return v / fxRate;
+    return v;
+  }
+  const noFx = needsConversion && !fxRate;
+
+  // Build comparison rows — union of all tickers from both months
+  const allTickers = [...new Set([
+    ...curr.filter(r=>r.ticker).map(r=>r.ticker),
+    ...prev.filter(r=>r.ticker).map(r=>r.ticker),
+  ])];
+
+  if (allTickers.length === 0) return null;
+
+  const rows = allTickers.map(ticker => {
+    const c = curr.find(r=>r.ticker===ticker) || null;
+    const p = prev.find(r=>r.ticker===ticker) || null;
+    const { value: cVal } = c ? calcValue(c) : { value:null };
+    const { value: pVal } = p ? calcValue(p) : { value:null };
+    const cValDisp = toDisplay(cVal);
+    const pValDisp = toDisplay(pVal);
+    const deltaVal = (cValDisp!==null && pValDisp!==null) ? cValDisp - pValDisp : null;
+    const deltaPct = (deltaVal!==null && pValDisp!==null && pValDisp!==0) ? (deltaVal/pValDisp)*100 : null;
+    const name = c?.name || p?.name || ticker;
+    const isNew  = !p && !!c;
+    const isGone = !!p && !c;
+    return { ticker, name, pValDisp, cValDisp, deltaVal, deltaPct, isNew, isGone };
+  });
+
+  // Section-level totals
+  const totalPrev = rows.reduce((s,r) => s + (r.pValDisp||0), 0);
+  const totalCurr = rows.reduce((s,r) => s + (r.cValDisp||0), 0);
+  const totalDelta = totalCurr - totalPrev;
+  const totalDeltaPct = totalPrev > 0 ? (totalDelta/totalPrev)*100 : null;
+
+  return (
+    <div style={{
+      border:`1px solid ${meta.color}28`,
+      borderTop:`2px solid ${meta.color}`,
+      borderRadius:"0 0 14px 14px",
+      background:`${meta.color}06`,
+      padding:"14px 18px",
+      marginTop:-14,
+      marginBottom:20,
+      animation:"fadeUp 0.3s ease forwards",
+    }}>
+      {/* Panel header */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,flexWrap:"wrap",gap:8}}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:14}}>⇄</span>
+          <span style={{fontSize:11,fontWeight:600,color:meta.color,letterSpacing:"0.08em",textTransform:"uppercase"}}>
+            Variación vs {prevMonthLabel}
+          </span>
+        </div>
+        {/* Section total delta */}
+        {totalPrev>0&&(
+          <div style={{display:"flex",alignItems:"center",gap:12}}>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontSize:10,color:C.textMuted,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:2}}>Mes anterior</div>
+              <div style={{fontFamily:"'DM Mono',monospace",fontSize:13,color:C.textSub}}>{noFx?"—":fmt(totalPrev)} {dispCurrency}</div>
+            </div>
+            <div style={{color:C.textMuted,fontSize:16}}>→</div>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontSize:10,color:C.textMuted,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:2}}>Este mes</div>
+              <div style={{fontFamily:"'DM Mono',monospace",fontSize:13,color:C.text}}>{noFx?"—":fmt(totalCurr)} {dispCurrency}</div>
+            </div>
+            {totalDeltaPct!==null&&!noFx&&(
+              <div style={{
+                background:pnlBg(totalDelta),
+                border:`1px solid ${pnlColor(totalDelta)}40`,
+                borderRadius:8,padding:"6px 12px",textAlign:"center",minWidth:90,
+              }}>
+                <div style={{fontFamily:"'DM Mono',monospace",fontSize:13,fontWeight:700,color:pnlColor(totalDelta)}}>
+                  {totalDelta>=0?"+":""}{fmtPct(totalDeltaPct)}
+                </div>
+                <div style={{fontFamily:"'DM Mono',monospace",fontSize:10,color:pnlColor(totalDelta),marginTop:1}}>
+                  {totalDelta>=0?"+":""}{fmt(totalDelta)} {dispCurrency}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Asset cards */}
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {rows.map(r => {
+          const pos = r.deltaVal!==null && r.deltaVal >= 0;
+          const col = r.deltaVal!==null ? pnlColor(r.deltaVal) : C.textMuted;
+          return (
+            <div key={r.ticker} style={{
+              display:"flex",alignItems:"center",gap:12,
+              background:C.card,borderRadius:10,padding:"10px 14px",
+              border:`1px solid ${r.isNew?C.green:r.isGone?C.red:C.border}`,
+              flexWrap:"wrap",
+            }}>
+              {/* Ticker + name */}
+              <div style={{minWidth:140,flex:"0 0 auto"}}>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <span style={{fontFamily:"'DM Mono',monospace",fontSize:13,fontWeight:700,color:meta.color}}>{r.ticker}</span>
+                  {r.isNew  && <span style={{fontSize:9,background:`${C.green}20`,color:C.green,  borderRadius:4,padding:"1px 5px",fontWeight:600}}>NUEVO</span>}
+                  {r.isGone && <span style={{fontSize:9,background:`${C.red}20`,  color:C.red,    borderRadius:4,padding:"1px 5px",fontWeight:600}}>SALIÓ</span>}
+                </div>
+                <div style={{fontSize:11,color:C.textMuted,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:130}}>{r.name}</div>
+              </div>
+
+              {/* Prev value */}
+              <div style={{textAlign:"right",minWidth:90}}>
+                <div style={{fontSize:9,color:C.textMuted,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:2}}>{prevMonthLabel}</div>
+                <div style={{fontFamily:"'DM Mono',monospace",fontSize:12,color:C.textSub}}>
+                  {r.pValDisp!==null&&!noFx ? `${fmt(r.pValDisp)} ${dispCurrency}` : "—"}
+                </div>
+              </div>
+
+              <div style={{color:C.textMuted,fontSize:13}}>→</div>
+
+              {/* Current value */}
+              <div style={{textAlign:"right",minWidth:90}}>
+                <div style={{fontSize:9,color:C.textMuted,letterSpacing:"0.06em",textTransform:"uppercase",marginBottom:2}}>Este mes</div>
+                <div style={{fontFamily:"'DM Mono',monospace",fontSize:12,color:C.text}}>
+                  {r.cValDisp!==null&&!noFx ? `${fmt(r.cValDisp)} ${dispCurrency}` : "—"}
+                </div>
+              </div>
+
+              {/* Delta */}
+              <div style={{marginLeft:"auto",textAlign:"right",minWidth:100}}>
+                {r.deltaVal!==null&&!noFx ? (
+                  <>
+                    <div style={{fontFamily:"'DM Mono',monospace",fontSize:13,fontWeight:700,color:col}}>
+                      {r.deltaVal>=0?"+":""}{fmtPct(r.deltaPct)}
+                    </div>
+                    <div style={{fontFamily:"'DM Mono',monospace",fontSize:11,color:col,marginTop:1}}>
+                      {r.deltaVal>=0?"+":""}{fmt(r.deltaVal)} {dispCurrency}
+                    </div>
+                  </>
+                ) : (
+                  <span style={{color:C.textMuted,fontSize:12}}>{noFx?"Sin TC":"—"}</span>
+                )}
+              </div>
+
+              {/* Visual bar */}
+              {r.deltaVal!==null&&r.pValDisp&&r.pValDisp>0&&!noFx&&(
+                <div style={{width:"100%",height:3,background:C.border,borderRadius:99,marginTop:4}}>
+                  <div style={{
+                    width:`${Math.min(Math.abs((r.deltaVal/r.pValDisp)*100),100)}%`,
+                    height:"100%",background:col,borderRadius:99,
+                    transition:"width 0.5s ease",
+                  }}/>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Section table ────────────────────────────────────────────────────────────
+function SectionTable({sectionKey, data: dataProp, onChange, compareData, showCompare, fxRates, showARS, year, month, movement=EMPTY_MOVEMENT, onMovementChange}){
+  const data = Array.isArray(dataProp) ? dataProp : [];
+  const meta = SECTION_META[sectionKey];
+  const timers = useRef({});
+  // Undo Snackbar (Kinetic) — snapshot de los datos justo antes de "Limpiar",
+  // para poder revertir en los ~6s que el snackbar queda visible.
+  const [undoSnapshot, setUndoSnapshot] = useState(null); // { rows } | null
+  const undoTimerRef = useRef(null);
+
+  // FX conversion — always convert to the selected display currency
+  // CEDEARs: native USD → ARS = ×MEP  |  USD = no change
+  // Pesos:   native ARS → USD = ÷MEP  |  ARS = no change
+  // Crypto:  native USD → ARS = ×Dólar Crypto | USD = no change
+  const FX_KEY_MAP = { cedears:"mep", pesos:"mep", crypto:"crypto" };
+  const nativeIsARS = meta.currency === "ARS";
+  const dispCurrency = showARS ? "ARS" : "USD";
+  const fxRate = parseFloat(fxRates?.[FX_KEY_MAP[sectionKey]]) || null;
+  const needsConversion = showARS !== nativeIsARS; // true when display ≠ native currency
+  const noFx = needsConversion && !fxRate;         // wants conversion but no rate entered
+
+  function toDisplay(nativeVal) {
+    if (nativeVal === null || nativeVal === undefined) return null;
+    if (!needsConversion) return nativeVal;          // already in the right currency
+    if (!fxRate) return null;                        // rate missing — return null, show ≈
+    if (showARS && !nativeIsARS) return nativeVal * fxRate;   // USD → ARS: ×rate
+    if (!showARS && nativeIsARS) return nativeVal / fxRate;   // ARS → USD: ÷rate
+    return nativeVal;
+  }
+
+  // La tabla siempre muestra Valor ARS Y Valor USD juntos (no dependen del
+  // toggle showARS). Uno es el valor nativo cargado a mano; el otro es una
+  // referencia calculada vía FX, jamás persistida.
+  const mepRate    = parseFloat(fxRates?.mep)    || null;
+  const cryptoRate = parseFloat(fxRates?.crypto) || null;
+  function valuesFor(nativeVal) {
+    if (nativeVal === null || nativeVal === undefined || isNaN(nativeVal)) return { ars: null, usd: null };
+    if (sectionKey === "pesos")   return { ars: nativeVal, usd: mepRate ? nativeVal / mepRate : null };
+    if (sectionKey === "cedears") return { ars: mepRate ? nativeVal * mepRate : null, usd: nativeVal };
+    return { ars: cryptoRate ? nativeVal * cryptoRate : null, usd: nativeVal }; // crypto
+  }
+  const nativeFieldLabel = sectionKey === "pesos" ? "ars" : "usd"; // cuál de los dos es el campo manual
+
+  const [sortKey, setSortKey] = useState(null);   // null | "value"
+  const [sortDir, setSortDir] = useState("desc");  // "asc" | "desc"
+
+  function toggleSort(key, defaultDir = "desc") {
+    if (sortKey === key) setSortDir(d => d === "desc" ? "asc" : "desc");
+    else { setSortKey(key); setSortDir(defaultDir); }
+  }
+
+  function resolveTickerName(id,ticker){
+    if(!ticker||ticker.length<1) return;
+    let name=null;
+    if(sectionKey==="cedears") name=CEDEAR_NAMES[ticker.toUpperCase()]||null;
+    else if(sectionKey==="pesos") name=PESOS_NAMES[ticker.toUpperCase()]||null;
+    else name=CRYPTO_NAMES[ticker.toUpperCase()]||null;
+    if(name) onChange(prev=>{
+      const arr=Array.isArray(prev)?prev:[];
+      return arr.map(r=>r.id===id&&!r.name?{...r,name}:r);
+    });
+  }
+
+  function updateRow(id,field,value){
+    onChange(prev=>{
+      const arr=Array.isArray(prev)?prev:[];
+      return arr.map(r=>r.id===id?{...r,[field]:value}:r);
+    });
+    if(field==="ticker"){
+      clearTimeout(timers.current[id]);
+      timers.current[id]=setTimeout(()=>resolveTickerName(id,value),500);
+    }
+  }
+
+  function addRow(){ onChange(prev=>{ const arr=Array.isArray(prev)?prev:[]; return [...arr,emptyRow()]; }); }
+  function removeRow(id){ onChange(prev=>{ const arr=Array.isArray(prev)?prev:[]; return arr.filter(r=>r.id!==id); }); }
+
+  function handleCopy() {
+    // Compute next month/year
+    const nextMonth = month === 12 ? 1 : month + 1;
+    const nextYear  = month === 12 ? year + 1 : year;
+    const key = makeKey(sectionKey, nextYear, nextMonth);
+    // Copiamos ticker, nombre y tipo (atributos estables) — Cantidad y Valor
+    // quedan en blanco a propósito: cada mes es un snapshot nuevo para cargar.
+    const copied = data
+      .filter(r => r.ticker)
+      .map(r => ({ ...emptyRow(), ticker: r.ticker, name: r.name, type: r.type }));
+    if (copied.length === 0) return;
+    // Warn if next month already has data
+    try {
+      const existing = localStorage.getItem(key);
+      if (existing) {
+        const parsed = JSON.parse(existing);
+        if (Array.isArray(parsed) && parsed.some(r => r.ticker)) {
+          if (!window.confirm(`El mes siguiente ya tiene datos en ${meta.label}. ¿Sobreescribir?`)) return;
+        }
+      }
+      localStorage.setItem(key, JSON.stringify(copied));
+      // Toast-style alert
+      alert(`✓ ${copied.length} activos copiados a ${MONTHS[nextMonth-1]} ${nextYear}`);
+    } catch(e) {
+      console.error(e);
+      alert("Error al copiar datos.");
+    }
+  }
+
+  function getPrevRow(ticker){
+    if(!compareData||!ticker) return null;
+    return compareData.find(r=>r.ticker===ticker)||null;
+  }
+
+  // Totales de la sección — siempre en ambas monedas (ARS y USD), ya que la
+  // tabla muestra las dos columnas juntas. Ya no hay costo base ni P&L acá.
+  const totalsARS = data.reduce((s,r)=>{ const {ars}=valuesFor(calcValue(r).value); return s+(ars||0); },0);
+  const totalsUSD = data.reduce((s,r)=>{ const {usd}=valuesFor(calcValue(r).value); return s+(usd||0); },0);
+
+  const thSt={
+    color:C.textMuted,fontSize:10,fontWeight:500,letterSpacing:"0.1em",textTransform:"uppercase",
+    padding:"10px 14px",textAlign:"left",borderBottom:`1px solid ${C.border}`,
+    fontFamily:"'DM Mono',monospace",whiteSpace:"nowrap",background:C.surface,
+  };
+  const tdSt={padding:"9px 14px",borderBottom:`1px solid ${C.border}`,verticalAlign:"middle",fontSize:13};
+  const inpSt={
+    background:"transparent",border:"none",color:C.text,
+    fontFamily:"'DM Mono',monospace",fontSize:12,padding:"4px 6px",
+    width:"100%",outline:"none",borderRadius:6,transition:"background 0.15s",
+  };
+
+  // Sort rows if a sort key is active — "value" (numérico) o "type" (alfabético)
+  const displayRows = sortKey ? [...data].sort((a, b) => {
+    if (sortKey === "type") {
+      const av = (a.type || "").toLowerCase();
+      const bv = (b.type || "").toLowerCase();
+      if (av < bv) return sortDir === "asc" ? -1 : 1;
+      if (av > bv) return sortDir === "asc" ? 1 : -1;
+      return 0;
+    }
+    const av = toDisplay(calcValue(a).value) ?? -Infinity;
+    const bv = toDisplay(calcValue(b).value) ?? -Infinity;
+    return sortDir === "desc" ? bv - av : av - bv;
+  }) : data;
+
+  // Build pie chart data using converted values
+  const pieData = data.map(r => {
+    const { value } = calcValue(r);
+    return { name: r.ticker||"—", value: toDisplay(value) };
+  });
+
+  return (
+    <div style={{marginBottom:28,position:"relative"}}>
+      {/* Header bar */}
+      <div style={{
+        display:"flex",alignItems:"center",justifyContent:"space-between",
+        padding:"14px 20px",
+        background:`linear-gradient(90deg,${meta.color}10,transparent)`,
+        border:`1px solid ${meta.color}28`,borderRadius:"14px 14px 0 0",
+      }}>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          <div style={{
+            width:40,height:40,borderRadius:12,
+            background:`${meta.color}18`,
+            display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,
+          }}>{meta.emoji}</div>
+          <div>
+            <div style={{fontFamily:"'Nunito',sans-serif",fontSize:19,fontWeight:700,color:C.text,lineHeight:1.1,letterSpacing:"0"}}>{meta.label}</div>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginTop:3}}>
+              <span style={{color:C.textMuted,fontSize:11}}>{meta.sub}</span>
+              {data.filter(r=>r.ticker).length>0&&(
+                <span style={{
+                  background:`${meta.color}18`,color:meta.color,
+                  fontFamily:"'DM Mono',monospace",fontSize:10,fontWeight:600,
+                  padding:"1px 7px",borderRadius:99,letterSpacing:"0.04em",
+                }}>{data.filter(r=>r.ticker).length} activos</span>
+              )}
+            </div>
+          </div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:20}}>
+          {(totalsARS>0||totalsUSD>0)&&(
+            <div style={{textAlign:"right",display:"flex",gap:24}}>
+              <div>
+                <div style={{color:C.textMuted,fontSize:10,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:4}}>Total ARS</div>
+                <div style={{fontFamily:"'DM Mono',monospace",fontSize:15,fontWeight:500,color: nativeFieldLabel==="ars"?C.text:C.textSub}}>
+                  {totalsARS>0?fmt(totalsARS):"—"} <span style={{fontSize:10,color:C.textMuted}}>ARS</span>
+                </div>
+              </div>
+              <div>
+                <div style={{color:C.textMuted,fontSize:10,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:4}}>Total USD</div>
+                <div style={{fontFamily:"'DM Mono',monospace",fontSize:15,fontWeight:500,color: nativeFieldLabel==="usd"?C.text:C.textSub}}>
+                  {totalsUSD>0?fmt(totalsUSD):"—"} <span style={{fontSize:10,color:C.textMuted}}>USD</span>
+                </div>
+              </div>
+            </div>
+          )}
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <CommentBubble sectionKey={sectionKey} color={meta.color}/>
+            <button className="kinetic-btn" onClick={()=>{
+              if (data.length===0 || (data.length===1 && !data[0].ticker)) return; // nada que limpiar
+              setUndoSnapshot({ rows: data });
+              onChange(_prev => [emptyRow()]);
+              if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+              undoTimerRef.current = setTimeout(()=>setUndoSnapshot(null), 6000);
+            }} style={{
+              background:"transparent",border:`1px solid ${C.border}`,
+              color:C.textMuted,fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:500,
+              padding:"8px 14px",cursor:"pointer",borderRadius:9,
+              display:"flex",alignItems:"center",gap:5,
+            }}
+              onMouseEnter={e=>{e.currentTarget.style.borderColor=C.red;e.currentTarget.style.color=C.red;e.currentTarget.style.background=C.redBg;}}
+              onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textMuted;e.currentTarget.style.background="transparent";}}
+            ><span style={{fontSize:13}}>🗑</span> Limpiar</button>
+            <button className="kinetic-btn" onClick={handleCopy} style={{
+              background:"transparent",border:`1px solid ${C.border}`,
+              color:C.textMuted,fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:500,
+              padding:"8px 14px",cursor:"pointer",borderRadius:9,
+              display:"flex",alignItems:"center",gap:5,
+            }}
+              title={`Copiar tickers al mes siguiente`}
+              onMouseEnter={e=>{e.currentTarget.style.borderColor=C.accent;e.currentTarget.style.color=C.accent;e.currentTarget.style.background=`${C.accent}12`;}}
+              onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textMuted;e.currentTarget.style.background="transparent";}}
+            ><span style={{fontSize:13}}>📋</span> Copiar</button>
+            <button className="kinetic-btn" onClick={addRow} style={{
+              background:`${meta.color}14`,border:`1px solid ${meta.color}44`,
+              color:meta.color,fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:600,
+              padding:"8px 18px",cursor:"pointer",borderRadius:9,
+            }}
+              onMouseEnter={e=>e.currentTarget.style.background=`${meta.color}26`}
+              onMouseLeave={e=>e.currentTarget.style.background=`${meta.color}14`}
+            >+ Agregar fila</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Table full width, pie below */}
+      <div style={{display:"flex",flexDirection:"column",gap:0}}>
+      <div style={{overflowX:"auto",border:`1px solid ${C.border}`,borderTop:"none",borderRadius:"0 0 14px 14px",background:C.card}}>
+        <table style={{width:"100%",borderCollapse:"collapse",minWidth:780}}>
+          <thead>
+            <tr>
+              <th style={{...thSt,width:90}}>Ticker</th>
+              <th style={{...thSt}}>Empresa</th>
+              <th style={{...thSt,width:130}}>
+                <span style={{display:"inline-flex",alignItems:"center",gap:2}}>
+                  Tipo
+                  <SortButton active={sortKey==="type"} dir={sortDir} onClick={()=>toggleSort("type","asc")}/>
+                </span>
+              </th>
+              <th style={{...thSt,width:130,textAlign:"right"}}>
+                <span style={{display:"inline-flex",alignItems:"center",justifyContent:"flex-end",gap:2}}>
+                  Valor ARS {nativeFieldLabel==="ars" && <span title="Carga manual" style={{color:meta.color}}>●</span>}
+                  <SortButton active={sortKey==="value"} dir={sortDir} onClick={()=>toggleSort("value")}/>
+                </span>
+              </th>
+              <th style={{...thSt,width:130,textAlign:"right"}}>
+                Valor USD {nativeFieldLabel==="usd" && <span title="Carga manual" style={{color:meta.color}}>●</span>}
+              </th>
+              {showCompare&&<th style={{...thSt,width:130,textAlign:"right"}}>Δ Mes Ant.</th>}
+              <th style={{...thSt,width:44}}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.length===0&&(
+              <tr><td colSpan={showCompare?7:6} style={{...tdSt,textAlign:"center",color:C.textMuted,padding:40,fontSize:13}}>
+                Sin posiciones · Hacé clic en "+ Agregar fila"
+              </td></tr>
+            )}
+            {displayRows.map(row=>{
+              const { value } = calcValue(row);
+              const { ars: valArs, usd: valUsd } = valuesFor(value);
+              const prev=getPrevRow(row.ticker);
+              // Δ Mes Ant. — en moneda nativa de la fila, sin depender de ningún FX
+              let delta=null;
+              if(prev){ const { value: pv } = calcValue(prev); if(value!==null&&pv!==null) delta = value-pv; }
+              const nativeCurrencyLabel = sectionKey==="pesos" ? "ARS" : "USD";
+              return (
+                <tr key={row.id}
+                  onMouseEnter={e=>e.currentTarget.style.background=C.cardHover}
+                  onMouseLeave={e=>e.currentTarget.style.background="transparent"}
+                  style={{transition:"background 0.12s"}}
+                >
+                  <td style={tdSt}>
+                    <input value={row.ticker} onChange={e=>updateRow(row.id,"ticker",e.target.value.toUpperCase())}
+                      placeholder="—" style={{...inpSt,fontWeight:700,color:meta.color,letterSpacing:"0.05em",width:70}}
+                      onFocus={e=>e.target.style.background=`${meta.color}12`}
+                      onBlur={e=>e.target.style.background="transparent"}
+                    />
+                  </td>
+                  <td style={tdSt}>
+                    <input value={row.name} onChange={e=>updateRow(row.id,"name",e.target.value)}
+                      placeholder="Nombre…" style={{...inpSt,color:C.textSub}}
+                      onFocus={e=>e.target.style.background=C.surface}
+                      onBlur={e=>e.target.style.background="transparent"}
+                    />
+                  </td>
+                  <td style={tdSt}>
+                    <div style={{display:"flex",alignItems:"center",gap:6}}>
+                      {row.type && <span style={{width:8,height:8,borderRadius:2,background:SECTION_TYPE_COLOR_FN[sectionKey](row.type),flexShrink:0}}/>}
+                      <select value={row.type||""} onChange={e=>updateRow(row.id,"type",e.target.value)}
+                        style={{...inpSt,cursor:"pointer",appearance:"none",WebkitAppearance:"none",color:row.type?SECTION_TYPE_COLOR_FN[sectionKey](row.type):C.text}}
+                        onFocus={e=>e.target.style.background=`${meta.color}12`}
+                        onBlur={e=>e.target.style.background="transparent"}
+                      >
+                        <option value="">—</option>
+                        {SECTION_TYPE_OPTIONS[sectionKey].map(o=><option key={o} value={o}>{o}</option>)}
+                      </select>
+                    </div>
+                  </td>
+                  {/* Valor ARS — manual si la sección es nativa ARS (Merval), referencia calculada si no */}
+                  <td style={{...tdSt,textAlign:"right", background: nativeFieldLabel==="ars" ? "transparent" : `${meta.color}06`}}>
+                    {nativeFieldLabel==="ars" ? (
+                      <input value={row.valor} onChange={e=>updateRow(row.id,"valor",e.target.value)}
+                        placeholder="0.00" type="text" inputMode="decimal" style={{...inpSt,textAlign:"right",width:100,fontWeight:600}}
+                        onFocus={e=>e.target.style.background=C.surface}
+                        onBlur={e=>e.target.style.background="transparent"}
+                      />
+                    ) : (
+                      <span style={{fontFamily:"'DM Mono',monospace",fontSize:12,color:C.textSub,fontStyle:"italic"}}>
+                        {valArs!==null?fmt(valArs):"—"}
+                      </span>
+                    )}
+                  </td>
+                  {/* Valor USD — manual si la sección es nativa USD (CEDEARs/Crypto), referencia calculada si no (Merval) */}
+                  <td style={{...tdSt,textAlign:"right", background: nativeFieldLabel==="usd" ? "transparent" : `${meta.color}06`}}>
+                    {nativeFieldLabel==="usd" ? (
+                      <input value={row.valor} onChange={e=>updateRow(row.id,"valor",e.target.value)}
+                        placeholder="0.00" type="text" inputMode="decimal" style={{...inpSt,textAlign:"right",width:100,fontWeight:600}}
+                        onFocus={e=>e.target.style.background=C.surface}
+                        onBlur={e=>e.target.style.background="transparent"}
+                      />
+                    ) : (
+                      <span style={{fontFamily:"'DM Mono',monospace",fontSize:12,color:C.textSub,fontStyle:"italic"}}>
+                        {valUsd!==null?fmt(valUsd):"—"}
+                      </span>
+                    )}
+                  </td>
+                  {showCompare&&(
+                    <td style={{...tdSt,textAlign:"right",fontFamily:"'DM Mono',monospace",fontSize:12}}>
+                      {delta!==null
+                        ?<span style={{color:pnlColor(delta),fontWeight:600}}>{delta>0?"+":""}{fmt(delta)} {nativeCurrencyLabel}</span>
+                        :<span style={{color:C.textMuted}}>—</span>}
+                    </td>
+                  )}
+                  <td style={{...tdSt,textAlign:"center"}}>
+                    <button className="kinetic-btn-sm" onClick={()=>removeRow(row.id)} style={{
+                      background:"transparent",border:"none",color:C.textMuted,cursor:"pointer",
+                      fontSize:17,padding:"2px 7px",borderRadius:6,lineHeight:1,
+                    }}
+                      onMouseEnter={e=>{e.currentTarget.style.color=C.red;e.currentTarget.style.background=C.redBg;}}
+                      onMouseLeave={e=>{e.currentTarget.style.color=C.textMuted;e.currentTarget.style.background="transparent";}}
+                    >×</button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Movimiento del mes — aporte/retiro/reubicación de capital, para que
+          "Δ vs Mes Anterior" refleje variación real de precio y no una
+          entrada/salida de plata. Monto en moneda nativa de la sección
+          (ARS para Merval, USD para Cedears/Crypto); el signo indica
+          dirección (+ entra a la sección, − sale de la sección). */}
+      <div style={{
+        display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",
+        padding:"10px 20px",borderTop:`1px solid ${meta.color}20`,
+        background:`${meta.color}06`,
+      }}>
+        <span style={{fontSize:11,color:C.textMuted,fontWeight:600,letterSpacing:"0.04em"}}>
+          Movimiento del mes:
+        </span>
+        <select value={movement.type} onChange={e=>onMovementChange("type",e.target.value)}
+          style={{
+            background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,
+            color:C.textSub,fontFamily:"'DM Sans',sans-serif",fontSize:12,
+            padding:"5px 8px",outline:"none",cursor:"pointer",
+          }}>
+          {MOVEMENT_TYPES.map(mt=>(
+            <option key={mt.key} value={mt.key}>{mt.icon} {mt.label}</option>
+          ))}
+        </select>
+        <input value={movement.amount} onChange={e=>onMovementChange("amount",e.target.value)}
+          placeholder="0" type="text" inputMode="decimal"
+          title="Positivo si entró capital a esta sección, negativo si salió"
+          style={{
+            width:110,background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,
+            color:C.text,fontFamily:"'DM Mono',monospace",fontSize:13,
+            padding:"5px 10px",outline:"none",textAlign:"right",
+          }}
+          onFocus={e=>e.target.style.borderColor=meta.color}
+          onBlur={e=>e.target.style.borderColor=C.border}
+        />
+        <span style={{fontSize:11,color:C.textMuted}}>{meta.currency}</span>
+        {parseFloat(movement.amount) !== 0 && !isNaN(parseFloat(movement.amount)) && (
+          <span style={{fontSize:10,color:C.textMuted,fontStyle:"italic"}}>
+            se resta del Δ vs mes anterior — no cuenta como rendimiento
+          </span>
+        )}
+      </div>
+
+      <SectionPieChart
+        data={data}
+        toDisplay={toDisplay}
+        meta={meta}
+        noFx={noFx}
+        dispCurrency={dispCurrency}
+      />
+      </div>
+
+      {/* Undo Snackbar (Kinetic) — aparece tras "Limpiar", 6s para revertir */}
+      {undoSnapshot && (
+        <div className="kinetic-snackbar" style={{
+          position:"absolute",bottom:-8,left:"50%",transform:"translate(-50%,100%)",
+          zIndex:20,display:"flex",alignItems:"center",gap:14,
+          background:C.surface,border:`1px solid ${C.border}`,
+          color:"#fff",borderRadius:10,padding:"10px 12px 10px 16px",
+          boxShadow:"0 8px 24px rgba(0,0,0,0.35)",whiteSpace:"nowrap",
+        }}>
+          <span style={{fontSize:12,fontFamily:"'DM Sans',sans-serif"}}>
+            {meta.label} — datos borrados
+          </span>
+          <button className="kinetic-btn" onClick={()=>{
+            onChange(_prev => undoSnapshot.rows);
+            setUndoSnapshot(null);
+            if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+          }} style={{
+            background:"transparent",border:"none",color:meta.color,
+            fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:700,
+            cursor:"pointer",padding:"4px 8px",borderRadius:6,
+          }}>Deshacer</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Donut ────────────────────────────────────────────────────────────────────
+function DonutChart({data}){
+  if(!data.length||data.every(d=>d.value===0)) return (
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:150,color:C.textMuted,fontSize:12}}>Sin datos aún</div>
+  );
+  return (
+    <ResponsiveContainer width="100%" height={150}>
+      <PieChart>
+        <Pie data={data} cx="50%" cy="50%" innerRadius={44} outerRadius={66} paddingAngle={4} dataKey="value" strokeWidth={0}>
+          {data.map((d,i)=><Cell key={i} fill={d.color||C.accent}/>)}
+        </Pie>
+        <Tooltip contentStyle={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,fontFamily:"'DM Mono',monospace",fontSize:11}} formatter={(v,n)=>[fmt(v),n]}/>
+      </PieChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ── Cash field component (must be top-level to avoid remount on each render) ──
+const CASH_INPUT_ST = {
+  background:"transparent", border:"none", outline:"none",
+  color:"#f0f0f5", fontFamily:"'DM Mono',monospace",
+  fontSize:14, fontWeight:500, width:"100%",
+};
+
+function CashField({ label, fieldKey, sectionColor, value, onChange, dispValue, dispCurrency }) {
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:5,minWidth:150}}>
+      <div style={{display:"flex",alignItems:"center",gap:6}}>
+        <div style={{width:7,height:7,borderRadius:2,background:sectionColor,flexShrink:0}}/>
+        <span style={{fontSize:11,color:"#5a5a72",fontWeight:500,letterSpacing:"0.06em",textTransform:"uppercase"}}>{label}</span>
+      </div>
+      <div style={{
+        display:"flex",alignItems:"center",gap:6,
+        background:"#131316",border:"1px solid #26262e",borderRadius:9,
+        padding:"7px 12px",transition:"border-color 0.2s",
+      }}
+        onFocus={e=>e.currentTarget.style.borderColor=sectionColor}
+        onBlur={e=>e.currentTarget.style.borderColor="#26262e"}
+      >
+        <span style={{color:"#5a5a72",fontSize:13,fontFamily:"'DM Mono',monospace"}}>$</span>
+        <input
+          type="text" inputMode="decimal"
+          value={value}
+          onChange={onChange}
+          placeholder="0,00"
+          style={CASH_INPUT_ST}
+        />
+      </div>
+      {dispValue!==null&&dispValue!==undefined&&(
+        <div style={{fontSize:10,color:"#5a5a72",fontFamily:"'DM Mono',monospace",paddingLeft:2}}>
+          {dispCurrency} {fmt(dispValue)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CashSectionTotal({ label, color, total, totalDisp, dispCurrency }) {
+  if (!total || total === 0) return null;
+  return (
+    <div style={{textAlign:"right",minWidth:110}}>
+      <div style={{color:"#5a5a72",fontSize:10,letterSpacing:"0.08em",textTransform:"uppercase",marginBottom:4}}>Total {label}</div>
+      <div style={{fontFamily:"'DM Mono',monospace",fontSize:16,fontWeight:600,color}}>
+        {fmt(total)} <span style={{fontSize:10,color:"#5a5a72"}}>{label==="Pesos"?"ARS":"USD"}</span>
+      </div>
+      {totalDisp!==null&&totalDisp!==undefined&&(
+        <div style={{fontSize:11,color:"#5a5a72",fontFamily:"'DM Mono',monospace",marginTop:2}}>
+          ≈ {fmt(totalDisp)} {dispCurrency}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Cash panel ───────────────────────────────────────────────────────────────
+function CashPanel({ cash, setCash, showARS, fxRates }) {
+  const mepRate = parseFloat(fxRates?.mep)||null;
+  const cclRate = parseFloat(fxRates?.ccl)||null;
+  const dispCurrency = showARS ? "ARS" : "USD";
+
+  function toDisplayPesos(v) {
+    if (!v) return null;
+    const n = parseFloat(v)||0;
+    if (showARS) return n;
+    return mepRate ? n/mepRate : null;
+  }
+  function toDisplayDolares(v) {
+    if (!v) return null;
+    const n = parseFloat(v)||0;
+    if (!showARS) return n;
+    return mepRate ? n*mepRate : null;
+  }
+
+  const totalPesos   = (parseFloat(cash.uala)||0) + (parseFloat(cash.mp)||0);
+  const totalDolares = (parseFloat(cash.fisicos)||0) + (parseFloat(cash.online_banco)||0) + (parseFloat(cash.online_iol)||0);
+  const totalPesosDisp   = showARS ? totalPesos   : (mepRate ? totalPesos/mepRate : null);
+  const totalDolaresDisp = showARS ? (mepRate ? totalDolares*mepRate : null) : totalDolares;
+
+
+
+  return (
+    <div style={{display:"flex",gap:16,marginBottom:28,flexWrap:"wrap"}}>
+
+      {/* Pesos panel — left */}
+      <div style={{flex:1,minWidth:280,background:"#18181c",border:"1px solid #26262e",borderRadius:14,overflow:"hidden"}}>
+        <div style={{
+          display:"flex",alignItems:"center",justifyContent:"space-between",
+          padding:"14px 20px",
+          background:"linear-gradient(90deg,#22c55e10,transparent)",
+          borderBottom:"1px solid #26262e",
+        }}>
+          <div style={{display:"flex",alignItems:"center",gap:12}}>
+            <div style={{width:36,height:36,borderRadius:10,background:"#22c55e18",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>💰</div>
+            <div>
+              <div style={{fontFamily:"'Nunito',sans-serif",fontSize:17,fontWeight:700,color:"#f0f0f5",lineHeight:1.1}}>Pesos</div>
+              <div style={{color:"#5a5a72",fontSize:11,marginTop:2}}>Efectivo · ARS</div>
+            </div>
+          </div>
+          <CashSectionTotal label="Pesos" color="#22c55e" total={totalPesos} totalDisp={!showARS&&totalPesosDisp!==null?totalPesosDisp:null} dispCurrency={dispCurrency}/>
+        </div>
+        <div style={{display:"flex",alignItems:"flex-start",gap:14,flexWrap:"wrap",padding:"16px 20px"}}>
+          <CashField label="Ualá" fieldKey="uala" sectionColor="#22c55e"
+            value={cash.uala} onChange={e=>setCash(c=>({...c,uala:e.target.value}))}
+            dispValue={parseFloat(cash.uala)>0?toDisplayPesos(cash.uala):null} dispCurrency={dispCurrency}/>
+          <CashField label="MP / Banco" fieldKey="mp" sectionColor="#22c55e"
+            value={cash.mp} onChange={e=>setCash(c=>({...c,mp:e.target.value}))}
+            dispValue={parseFloat(cash.mp)>0?toDisplayPesos(cash.mp):null} dispCurrency={dispCurrency}/>
+        </div>
+      </div>
+
+      {/* Dólares panel — right */}
+      <div style={{flex:1,minWidth:380,background:"#18181c",border:"1px solid #26262e",borderRadius:14,overflow:"hidden"}}>
+        <div style={{
+          display:"flex",alignItems:"center",justifyContent:"space-between",
+          padding:"14px 20px",
+          background:"linear-gradient(90deg,#38bdf810,transparent)",
+          borderBottom:"1px solid #26262e",
+        }}>
+          <div style={{display:"flex",alignItems:"center",gap:12}}>
+            <div style={{width:36,height:36,borderRadius:10,background:"#38bdf818",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>💵</div>
+            <div>
+              <div style={{fontFamily:"'Nunito',sans-serif",fontSize:17,fontWeight:700,color:"#f0f0f5",lineHeight:1.1}}>Dólares</div>
+              <div style={{color:"#5a5a72",fontSize:11,marginTop:2}}>Efectivo · USD</div>
+            </div>
+          </div>
+          <CashSectionTotal label="Dólares" color="#38bdf8" total={totalDolares} totalDisp={showARS&&totalDolaresDisp!==null?totalDolaresDisp:null} dispCurrency={dispCurrency}/>
+        </div>
+        <div style={{display:"flex",alignItems:"flex-start",gap:14,flexWrap:"wrap",padding:"16px 20px"}}>
+          <CashField label="Físicos" fieldKey="fisicos" sectionColor="#38bdf8"
+            value={cash.fisicos} onChange={e=>setCash(c=>({...c,fisicos:e.target.value}))}
+            dispValue={parseFloat(cash.fisicos)>0?toDisplayDolares(cash.fisicos):null} dispCurrency={dispCurrency}/>
+          <CashField label="Online - Banco" fieldKey="online_banco" sectionColor="#38bdf8"
+            value={cash.online_banco} onChange={e=>setCash(c=>({...c,online_banco:e.target.value}))}
+            dispValue={parseFloat(cash.online_banco)>0?toDisplayDolares(cash.online_banco):null} dispCurrency={dispCurrency}/>
+          <CashField label="Online - IOL" fieldKey="online_iol" sectionColor="#38bdf8"
+            value={cash.online_iol} onChange={e=>setCash(c=>({...c,online_iol:e.target.value}))}
+            dispValue={parseFloat(cash.online_iol)>0?toDisplayDolares(cash.online_iol):null} dispCurrency={dispCurrency}/>
+        </div>
+      </div>
+
+    </div>
+  );
+}
+
+
+// ── EOT: Evolution Over Time ──────────────────────────────────────────────────
+const EOT_SERIES = [
+  { key:"cedears",   label:"CEDEARs",       color:"#f59e0b" },
+  { key:"pesos",     label:"Merval",         color:"#38bdf8" },
+  { key:"crypto",    label:"Crypto",         color:"#a78bfa" },
+  { key:"dolares",   label:"Dólares",        color:"#22c55e" },
+  { key:"grandTotal",label:"Grand Total",    color:"#6c63ff" },
+  { key:"delta",     label:"Δ vs Mes Ant.",  color:"#f87171" },
+];
+
+const RANGE_OPTIONS = [
+  { label:"3M",  months:3  },
+  { label:"6M",  months:6  },
+  { label:"12M", months:12 },
+  { label:"Todo",months:99 },
+];
+
+function EOTView({ showARS }) {
+  const [range, setRange]   = React.useState(6);
+  const [hidden, setHidden] = React.useState(new Set());
+
+  // ── Load all available monthly data from localStorage ──────────────────────
+  const allData = React.useMemo(() => {
+    const keys = Object.keys(localStorage).filter(k => k.startsWith("portfolio:cedears:"));
+    // Extract unique year-month combos
+    const months = keys.map(k => {
+      const m = k.match(/(\d{4})-(\d{2})$/);
+      return m ? { year: parseInt(m[1]), month: parseInt(m[2]) } : null;
+    }).filter(Boolean);
+    // Sort ascending
+    months.sort((a,b) => a.year!==b.year ? a.year-b.year : a.month-b.month);
+
+    const monthly = months.map(({ year, month }) => {
+      // Load each section
+      const sections = {};
+      for (const s of ["cedears","pesos","crypto"]) {
+        try {
+          const r = localStorage.getItem(makeKey(s, year, month));
+          sections[s] = r ? JSON.parse(r) : [];
+        } catch { sections[s] = []; }
+      }
+      // Load FX
+      let fx = { mep:"", ccl:"", crypto:"" };
+      try { const f = localStorage.getItem(fxKey(year, month)); if(f) fx = JSON.parse(f); } catch {}
+      // Load cash
+      let cash = { uala:"", mp:"", fisicos:"", online_banco:"", online_iol:"" };
+      try { const c = localStorage.getItem(cashKey(year, month)); if(c) cash = JSON.parse(c); } catch {}
+
+      const mepRate   = parseFloat(fx.mep)    || null;
+      const cclRate   = parseFloat(fx.ccl)    || null;
+      const cryptoRate= parseFloat(fx.crypto) || null;
+
+      // Compute native totals per section
+      function sectionNativeTotal(s) {
+        return (Array.isArray(sections[s])?sections[s]:[])
+          .reduce((a,r) => a + (calcValue(r).value || 0), 0);
+      }
+
+      const cedearUSD  = sectionNativeTotal("cedears"); // native USD (carga manual, se calcula ARS de referencia vía MEP)
+      const mervalARS  = sectionNativeTotal("pesos");   // native ARS
+      const cryptoUSD  = sectionNativeTotal("crypto");  // native USD
+      const pesosARS   = (parseFloat(cash.uala)||0) + (parseFloat(cash.mp)||0);
+      const dolaresUSD = (parseFloat(cash.fisicos)||0) + (parseFloat(cash.online_banco)||0) + (parseFloat(cash.online_iol)||0);
+
+      // Convert everything to display currency
+      function toDisp(nativeVal, isARS, rate) {
+        if (nativeVal === 0) return 0;
+        if (showARS) {
+          if (isARS) return nativeVal;
+          return rate ? nativeVal * rate : null;
+        } else {
+          if (!isARS) return nativeVal;
+          return rate ? nativeVal / rate : null;
+        }
+      }
+
+      const cedearDisp  = toDisp(cedearUSD,  false, mepRate);   // CEDEARs es nativo USD
+      const mervalDisp  = toDisp(mervalARS,  true,  mepRate);
+      const cryptoDisp  = toDisp(cryptoUSD,  false, cryptoRate);
+      const pesosDisp   = toDisp(pesosARS,   true,  mepRate);
+      const dolaresDisp = toDisp(dolaresUSD, false, mepRate);
+
+      const allDisp = [cedearDisp, mervalDisp, cryptoDisp, pesosDisp, dolaresDisp];
+      const grandTotal = allDisp.every(v=>v!==null) ? allDisp.reduce((a,v)=>a+v,0) : null;
+
+      // Total "invertido" = CEDEARs + Merval + Crypto (sin cash) — se usa abajo
+      // para calcular el delta mes a mes, ya que no hay más costo base.
+      const investmentTotal = (cedearDisp!==null && mervalDisp!==null && cryptoDisp!==null)
+        ? cedearDisp + mervalDisp + cryptoDisp : null;
+
+      return {
+        label: `${MONTHS[month-1].slice(0,3)} ${year}`,
+        year, month,
+        cedears:   cedearDisp,
+        pesos:     mervalDisp,
+        crypto:    cryptoDisp,
+        dolares:   dolaresDisp,
+        grandTotal,
+        investmentTotal,
+      };
+    });
+
+    // Segundo pase: "delta" = variación del total invertido (CEDEARs+Merval+Crypto)
+    // respecto al mes calendario inmediatamente anterior en la serie.
+    return monthly.map((d, i) => {
+      const prev = i > 0 ? monthly[i-1] : null;
+      const delta = (prev && d.investmentTotal!==null && prev.investmentTotal!==null)
+        ? d.investmentTotal - prev.investmentTotal
+        : null;
+      return { ...d, delta };
+    });
+  }, [showARS]);
+
+  // Apply range filter
+  const filtered = range >= 99 ? allData : allData.slice(-range);
+
+  // Toggle series visibility
+  function toggleSeries(key) {
+    setHidden(h => {
+      const n = new Set(h);
+      n.has(key) ? n.delete(key) : n.add(key);
+      return n;
+    });
+  }
+
+  const dispCurrency = showARS ? "ARS" : "USD";
+  const visibleSeries = EOT_SERIES.filter(s => !hidden.has(s.key));
+
+  // Find max value for Y-axis scaling
+  const allValues = filtered.flatMap(d => visibleSeries.map(s => d[s.key] || 0)).filter(v=>v>0);
+  const maxVal = allValues.length ? Math.max(...allValues) : 1;
+
+  if (allData.length === 0) return (
+    <div style={{
+      display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+      minHeight:400,gap:16,color:C.textMuted,
+    }}>
+      <div style={{fontSize:48}}>📈</div>
+      <div style={{fontFamily:"'Nunito',sans-serif",fontSize:20,fontWeight:700,color:C.text}}>Sin datos aún</div>
+      <div style={{fontSize:13,textAlign:"center",maxWidth:340,lineHeight:1.6}}>
+        Guardá datos en la pestaña Portfolio para que aparezcan aquí.
+      </div>
+    </div>
+  );
+
+  // ── Mini sparkline values for summary cards ───────────────────────────────
+  function lastTwo(key) {
+    const vals = filtered.map(d=>d[key]).filter(v=>v!==null&&v>0);
+    if (vals.length < 2) return null;
+    return { prev: vals[vals.length-2], curr: vals[vals.length-1] };
+  }
+
+  return (
+    <div style={{padding:"28px 28px 52px",maxWidth:1380,margin:"0 auto"}}>
+
+      {/* Header row */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:24,flexWrap:"wrap",gap:12}}>
+        <div>
+          <h2 style={{fontFamily:"'Nunito',sans-serif",fontSize:22,fontWeight:800,color:C.text,margin:0,lineHeight:1}}>
+            Evolución del Portafolio
+          </h2>
+          <p style={{fontSize:12,color:C.textMuted,margin:"4px 0 0",fontFamily:"'DM Mono',monospace"}}>
+            {filtered.length} meses · valores en {dispCurrency}
+          </p>
+        </div>
+        {/* Range selector */}
+        <div style={{display:"flex",alignItems:"center",gap:4,background:C.card,border:`1px solid ${C.border}`,borderRadius:9,padding:3}}>
+          {RANGE_OPTIONS.map(o=>{
+            const active = range===o.months;
+            return (
+              <button className={active?"kinetic-btn kinetic-chip-on":"kinetic-btn"} key={o.label} onClick={()=>setRange(o.months)} style={{
+                background:active?C.accent:"transparent",
+                border:"none",
+                color:active?"#fff":C.textMuted,
+                fontFamily:"'DM Mono',monospace",fontSize:12,fontWeight:600,
+                padding:"5px 14px",cursor:"pointer",borderRadius:7,
+letterSpacing:"0.04em",
+              }}>{o.label}</button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Series toggle pills */}
+      <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:20}}>
+        {EOT_SERIES.map(s=>{
+          const on = !hidden.has(s.key);
+          return (
+            <button className={on?"kinetic-btn kinetic-chip-on":"kinetic-btn"} key={s.key} onClick={()=>toggleSeries(s.key)} style={{
+              background: on ? `${s.color}20` : "transparent",
+              border:`1px solid ${on ? s.color+"60" : C.border}`,
+              color: on ? s.color : C.textMuted,
+              fontFamily:"'DM Mono',monospace",fontSize:11,fontWeight:600,
+              padding:"5px 12px",cursor:"pointer",borderRadius:99,
+display:"flex",alignItems:"center",gap:6,
+              letterSpacing:"0.04em",
+            }}>
+              <div style={{width:8,height:8,borderRadius:"50%",background:on?s.color:C.textMuted,flexShrink:0}}/>
+              {s.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── Main line chart ── */}
+      <div style={{
+        background:C.card,border:`1px solid ${C.border}`,borderRadius:16,
+        padding:"20px 16px 12px",marginBottom:24,overflow:"hidden",
+      }}>
+        {filtered.length < 2 ? (
+          <div style={{textAlign:"center",padding:"40px 0",color:C.textMuted,fontSize:13}}>
+            Se necesitan al menos 2 meses de datos para mostrar el gráfico.
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height={320}>
+            <LineChart data={filtered} margin={{top:8,right:16,bottom:0,left:16}}>
+              <defs>
+                {visibleSeries.map(s=>(
+                  <linearGradient key={s.key} id={`eot-grad-${s.key}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor={s.color} stopOpacity={0.15}/>
+                    <stop offset="95%" stopColor={s.color} stopOpacity={0}/>
+                  </linearGradient>
+                ))}
+              </defs>
+              <CartesianGrid stroke={C.border} strokeDasharray="3 3" vertical={false}/>
+              <XAxis dataKey="label" tick={{fill:C.textMuted,fontSize:11,fontFamily:"'DM Mono',monospace"}} axisLine={false} tickLine={false}/>
+              <YAxis tick={{fill:C.textMuted,fontSize:10,fontFamily:"'DM Mono',monospace"}} axisLine={false} tickLine={false}
+                tickFormatter={v=>{const a=Math.abs(v);const s=v<0?"-":"";return a>=1000000?`${s}${(a/1000000).toFixed(1)}M`:a>=1000?`${s}${(a/1000).toFixed(0)}K`:`${v}`;}}
+              />
+              <Tooltip
+                contentStyle={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,fontFamily:"'DM Mono',monospace",fontSize:11,boxShadow:"0 8px 32px #00000080"}}
+                formatter={(v,n)=>[v!==null?`${fmt(v)} ${dispCurrency}`:"—",n]}
+                labelStyle={{color:C.text,fontWeight:600,marginBottom:6}}
+              />
+              {visibleSeries.map(s=>(
+                <Line key={s.key} type="monotone" dataKey={s.key} name={s.label}
+                  stroke={s.color} strokeWidth={2} dot={{r:3,fill:s.color,strokeWidth:0}}
+                  activeDot={{r:5,fill:s.color,stroke:C.bg,strokeWidth:2}}
+                  connectNulls={true}
+                />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+
+      {/* ── Summary cards with last delta ── */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:16,marginBottom:28}}>
+        {EOT_SERIES.map(s=>{
+          const pair = lastTwo(s.key);
+          const delta = pair ? pair.curr - pair.prev : null;
+          const deltaPct = (delta!==null&&pair.prev>0) ? (delta/pair.prev)*100 : null;
+          const lastVal = filtered.length ? filtered[filtered.length-1][s.key] : null;
+          return (
+            <div key={s.key} style={{
+              background:C.card,border:`1px solid ${C.border}`,borderRadius:14,
+              padding:"16px 18px",position:"relative",overflow:"hidden",
+            }}>
+              <div style={{position:"absolute",top:0,left:0,right:0,height:3,background:`linear-gradient(90deg,${s.color},${s.color}00)`,borderRadius:"14px 14px 0 0"}}/>
+              <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:10}}>
+                <div style={{width:8,height:8,borderRadius:"50%",background:s.color,flexShrink:0}}/>
+                <span style={{fontSize:11,fontWeight:600,color:C.textMuted,letterSpacing:"0.07em",textTransform:"uppercase"}}>{s.label}</span>
+              </div>
+              <div style={{fontFamily:"'DM Mono',monospace",fontSize:18,fontWeight:500,color:C.text,marginBottom:8}}>
+                {lastVal!==null&&lastVal>0 ? `${fmt(lastVal)} ${dispCurrency}` : "—"}
+              </div>
+              {deltaPct!==null&&(
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <span style={{
+                    background:pnlBg(delta),color:pnlColor(delta),
+                    fontFamily:"'DM Mono',monospace",fontSize:11,fontWeight:700,
+                    padding:"2px 8px",borderRadius:6,
+                  }}>{delta>0?"+":""}{fmtPct(deltaPct)}</span>
+                  <span style={{fontSize:10,color:C.textMuted,fontFamily:"'DM Mono',monospace"}}>
+                    vs mes anterior
+                  </span>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── Monthly breakdown table ── */}
+      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:16,overflow:"hidden"}}>
+        <div style={{
+          padding:"14px 20px",borderBottom:`1px solid ${C.border}`,
+          display:"flex",alignItems:"center",gap:10,
+        }}>
+          <span style={{fontFamily:"'Nunito',sans-serif",fontSize:15,fontWeight:700,color:C.text}}>Detalle mensual</span>
+          <span style={{fontSize:11,color:C.textMuted,fontFamily:"'DM Mono',monospace"}}>{dispCurrency}</span>
+        </div>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",minWidth:800}}>
+            <thead>
+              <tr style={{background:C.surface}}>
+                <th style={{padding:"10px 16px",textAlign:"left",fontSize:10,color:C.textMuted,fontWeight:500,letterSpacing:"0.1em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap",fontFamily:"'DM Mono',monospace"}}>Mes</th>
+                {EOT_SERIES.map(s=>(
+                  <th key={s.key} style={{padding:"10px 12px",textAlign:"right",fontSize:10,color:hidden.has(s.key)?C.textMuted:s.color,fontWeight:500,letterSpacing:"0.08em",textTransform:"uppercase",borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap",fontFamily:"'DM Mono',monospace",opacity:hidden.has(s.key)?0.4:1}}>
+                    {s.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {[...filtered].reverse().map((d,i)=>{
+                const prev = filtered[filtered.length-1-i-1];
+                return (
+                  <tr key={d.label}
+                    style={{transition:"background 0.12s"}}
+                    onMouseEnter={e=>e.currentTarget.style.background=C.cardHover}
+                    onMouseLeave={e=>e.currentTarget.style.background="transparent"}
+                  >
+                    <td style={{padding:"10px 16px",fontSize:12,fontFamily:"'DM Mono',monospace",color:C.text,borderBottom:`1px solid ${C.border}`,whiteSpace:"nowrap",fontWeight:600}}>{d.label}</td>
+                    {EOT_SERIES.map(s=>{
+                      const v = d[s.key];
+                      const pv = prev?.[s.key];
+                      const delta = (v!==null&&pv!==null) ? v-pv : null;
+                      return (
+                        <td key={s.key} style={{padding:"10px 12px",textAlign:"right",borderBottom:`1px solid ${C.border}`,opacity:hidden.has(s.key)?0.3:1}}>
+                          <div style={{fontFamily:"'DM Mono',monospace",fontSize:12,color:C.text}}>{v!==null&&v>0?fmt(v):"—"}</div>
+                          {delta!==null&&v>0&&pv>0&&(
+                            <div style={{fontFamily:"'DM Mono',monospace",fontSize:10,color:pnlColor(delta),marginTop:1}}>
+                              {delta>0?"+":""}{fmt(delta)}
+                            </div>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ── Expenses Tab ──────────────────────────────────────────────────────────────
+// Storage: "expenses:{year}" → { categories: [{id, name, items: [{id, name, note, months:{1..12}}]}] }
+// Each month value is a string (ARS amount, optionally "400 USD" annotation)
+
+function expKey(year) { return `expenses:${year}`; }
+
+function makeExpId() { return `e${Date.now()}${Math.floor(Math.random()*1000)}`; }
+
+const EXPENSE_MONTHS = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+
+// ── Sección "Asignación Objetivo" — debajo de la tabla de gastos ────────────
+// Current (manual, numérico) + Target (manual, numérico) por categoría de
+// inversión, más un bloque de USD (texto libre) y Notas (texto libre).
+const TARGET_CATEGORIES = [
+  { key: "ars",    label: "ARS",    color: C.arsCash },
+  { key: "cedear", label: "Cedear", color: C.cedear },
+  { key: "merval", label: "Merval", color: C.pesos },
+  { key: "crypto", label: "Crypto", color: C.crypto },
+];
+const EMPTY_TARGETS = {
+  ars:    { current: "", target: "500" },
+  cedear: { current: "", target: "7000" },
+  merval: { current: "", target: "1000" },
+  crypto: { current: "", target: "500" },
+  usdCurrent: "",
+  notas: "",
+};
+
+function loadExpenses(year) {
+  try {
+    const r = localStorage.getItem(expKey(year));
+    return r ? JSON.parse(r) : { categories: [] };
+  } catch { return { categories: [] }; }
+}
+function saveExpenses(year, data) {
+  try { localStorage.setItem(expKey(year), JSON.stringify(data)); } catch {}
+}
+
+// ── Inline editable cell ──────────────────────────────────────────────────────
+function ExpCell({ value, onChange, color }) {
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft]     = React.useState(value || "");
+  const inputRef              = React.useRef(null);
+
+  React.useEffect(() => { if (editing && inputRef.current) inputRef.current.focus(); }, [editing]);
+
+  function commit() {
+    setEditing(false);
+    onChange(draft.trim());
+  }
+
+  if (editing) return (
+    <input
+      ref={inputRef}
+      value={draft}
+      onChange={e => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={e => { if (e.key === "Enter") commit(); if (e.key === "Escape") { setDraft(value||""); setEditing(false); } }}
+      style={{
+        background: C.surface, border: `1px solid ${color}`,
+        borderRadius: 6, color: C.text,
+        fontFamily: "'DM Mono',monospace", fontSize: 12,
+        padding: "3px 7px", width: "100%", outline: "none",
+        textAlign: "right", boxSizing: "border-box",
+      }}
+    />
+  );
+
+  const numVal = parseFloat((value||"").replace(/[^0-9.]/g,""));
+  const hasUSD = (value||"").toUpperCase().includes("USD");
+  const isEmpty = !value || value.trim() === "" || value.trim() === "0";
+
+  return (
+    <div
+      onClick={() => { setDraft(value||""); setEditing(true); }}
+      style={{
+        cursor: "pointer", minHeight: 28,
+        display: "flex", alignItems: "center", justifyContent: "flex-end",
+        borderRadius: 6, padding: "3px 6px",
+        transition: "background 0.15s",
+        color: isEmpty ? C.textMuted : hasUSD ? C.crypto : C.text,
+        fontFamily: "'DM Mono',monospace", fontSize: 12,
+      }}
+      onMouseEnter={e => e.currentTarget.style.background = `${color}12`}
+      onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+      title="Clic para editar"
+    >
+      {isEmpty ? <span style={{opacity:0.25}}>—</span> : value}
+    </div>
+  );
+}
+
+
+// ── Expense item sparkline ────────────────────────────────────────────────────
+function ExpSparkline({ item, color }) {
+  const vals = Array.from({length:12},(_,i)=>{
+    const v = parseFloat((item.months?.[i+1]||"").replace(/[^0-9.]/g,"")) || null;
+    return { m: i+1, v };
+  });
+  const defined = vals.filter(d=>d.v!==null);
+  if (defined.length < 2) return (
+    <div style={{width:80,height:28,display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <span style={{fontSize:9,color:C.textMuted,fontFamily:"'DM Mono',monospace"}}>—</span>
+    </div>
+  );
+
+  const maxV = Math.max(...defined.map(d=>d.v));
+  const minV = Math.min(...defined.map(d=>d.v));
+  const range = maxV - minV || 1;
+  const W=80, H=28, pad=3;
+
+  // Build polyline points
+  const points = vals.map((d,i)=>{
+    const x = pad + (i/(vals.length-1))*(W-pad*2);
+    const y = d.v!==null
+      ? pad + (1-(d.v-minV)/range)*(H-pad*2)
+      : null;
+    return {x,y,v:d.v};
+  });
+
+  // Segments: only draw lines between consecutive non-null points
+  const segments = [];
+  for (let i=0;i<points.length-1;i++){
+    if(points[i].y!==null&&points[i+1].y!==null)
+      segments.push([points[i],points[i+1]]);
+  }
+
+  const last = [...points].reverse().find(p=>p.y!==null);
+  const first = points.find(p=>p.y!==null);
+  const trend = (last&&first) ? last.v - first.v : 0;
+  const lineColor = trend > 0 ? C.red : trend < 0 ? C.green : C.amber; // up=costs rising=red, down=saving=green
+
+  return (
+    <svg width={W} height={H} style={{display:"block"}}>
+      {segments.map(([a,b],i)=>(
+        <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+          stroke={lineColor} strokeWidth={1.5} strokeLinecap="round"/>
+      ))}
+      {last&&<circle cx={last.x} cy={last.y} r={2.5} fill={lineColor}/>}
+    </svg>
+  );
+}
+
+// ── Expense month comment cell ────────────────────────────────────────────────
+function ExpCommentCell({ comment, onSave, color }) {
+  const [open, setOpen]       = React.useState(false);
+  const [draft, setDraft]     = React.useState(comment||"");
+  const [editing, setEditing] = React.useState(false);
+  const ref                   = React.useRef(null);
+
+  React.useEffect(()=>{
+    if(!open) return;
+    function h(e){ if(ref.current&&!ref.current.contains(e.target)){setOpen(false);setEditing(false);} }
+    document.addEventListener("mousedown",h);
+    return ()=>document.removeEventListener("mousedown",h);
+  },[open]);
+
+  const has = comment && comment.trim().length > 0;
+
+  function handleSave(){
+    onSave(draft.trim());
+    setEditing(false);
+    if(!draft.trim()) setOpen(false);
+  }
+  function handleDelete(){
+    onSave("");
+    setDraft("");
+    setEditing(false);
+    setOpen(false);
+  }
+
+  return (
+    <div style={{position:"relative",display:"inline-flex"}} ref={ref}>
+      <button className="kinetic-btn" onClick={()=>{setOpen(o=>!o);setEditing(false);setDraft(comment||"");}} style={{
+        background:has?`${color}18`:"transparent",
+        border:`1px solid ${has?color+"50":C.border}`,
+        color:has?color:C.textMuted,
+        borderRadius:6,padding:"3px 6px",cursor:"pointer",
+        fontSize:11,lineHeight:1,
+        display:"flex",alignItems:"center",gap:3,minHeight:24,
+      }}
+        onMouseEnter={e=>{e.currentTarget.style.borderColor=color;e.currentTarget.style.color=color;e.currentTarget.style.background=`${color}18`;}}
+        onMouseLeave={e=>{e.currentTarget.style.borderColor=has?`${color}50`:C.border;e.currentTarget.style.color=has?color:C.textMuted;e.currentTarget.style.background=has?`${color}18`:"transparent";}}
+        title={has?"Ver comentario":"Agregar comentario"}
+      >
+        💬{has&&<span style={{width:5,height:5,borderRadius:"50%",background:color,flexShrink:0}}/>}
+      </button>
+
+      {open&&(
+        <div style={{
+          position:"absolute",top:"calc(100% + 6px)",right:0,
+          width:300,background:C.card,border:`1px solid ${color}40`,
+          borderRadius:10,boxShadow:"0 8px 28px #00000070",
+          zIndex:600,overflow:"hidden",
+          animation:"fadeUp 0.15s ease forwards",
+        }}>
+          <div style={{padding:"8px 12px",background:`${color}12`,borderBottom:`1px solid ${color}20`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span style={{fontSize:10,fontWeight:600,color,letterSpacing:"0.07em",textTransform:"uppercase"}}>Nota</span>
+            <button onClick={()=>{setOpen(false);setEditing(false);}} style={{background:"transparent",border:"none",color:C.textMuted,cursor:"pointer",fontSize:14,lineHeight:1}}>×</button>
+          </div>
+          <div style={{padding:"10px 12px"}}>
+            {editing ? (
+              <textarea autoFocus value={draft} onChange={e=>setDraft(e.target.value)}
+                placeholder="Escribí tu comentario..."
+                autoCapitalize="off" autoCorrect="off"
+                style={{width:"100%",minHeight:110,background:C.surface,border:`1px solid ${color}40`,borderRadius:7,color:C.text,fontFamily:"'DM Sans',sans-serif",fontSize:13,padding:"8px 10px",outline:"none",resize:"vertical",boxSizing:"border-box",textTransform:"none",lineHeight:1.5}}
+                onFocus={e=>e.target.style.borderColor=color}
+                onBlur={e=>e.target.style.borderColor=`${color}40`}
+              />
+            ) : (
+              <div style={{fontSize:13,color:has?C.text:C.textMuted,lineHeight:1.5,fontStyle:has?"normal":"italic",minHeight:50,textTransform:"none",whiteSpace:"pre-wrap"}}>
+                {has?comment:"Sin comentario. Hacé clic en \"Nueva\" para agregar."}
+              </div>
+            )}
+          </div>
+          <div style={{padding:"8px 12px",borderTop:`1px solid ${C.border}`,display:"flex",gap:5}}>
+            {editing ? (
+              <>
+                <button onClick={handleSave} style={{flex:1,background:`${color}20`,border:`1px solid ${color}60`,color,borderRadius:6,padding:"5px 0",cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>✓ Guardar</button>
+                <button onClick={()=>setEditing(false)} style={{flex:1,background:"transparent",border:`1px solid ${C.border}`,color:C.textMuted,borderRadius:6,padding:"5px 0",cursor:"pointer",fontSize:11,fontFamily:"'DM Sans',sans-serif"}}>Cancelar</button>
+              </>
+            ) : (
+              <>
+                <button onClick={()=>setEditing(true)} style={{flex:1,background:`${color}14`,border:`1px solid ${color}40`,color,borderRadius:6,padding:"5px 0",cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>{has?"✎ Editar":"+ Nueva"}</button>
+                <button onClick={handleDelete} disabled={!has} style={{flex:1,background:"transparent",border:`1px solid ${C.border}`,color:has?C.textMuted:C.textMuted,borderRadius:6,padding:"5px 0",cursor:has?"pointer":"default",fontSize:11,opacity:has?1:0.4,fontFamily:"'DM Sans',sans-serif"}}
+                  onMouseEnter={e=>{if(has){e.currentTarget.style.borderColor=C.red;e.currentTarget.style.color=C.red;e.currentTarget.style.background=C.redBg;}}}
+                  onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textMuted;e.currentTarget.style.background="transparent";}}
+                >🗑 Borrar</button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Expenses view ─────────────────────────────────────────────────────────────
+function ExpensesView() {
+  const now = new Date();
+  const [year, setYear]       = React.useState(now.getFullYear());
+  const [data, setData]       = React.useState(() => loadExpenses(now.getFullYear()));
+  const [editingCat, setEditingCat]   = React.useState(null);
+  const [editingItem, setEditingItem] = React.useState(null);
+  const [catDraft, setCatDraft]       = React.useState("");
+  const [itemDraft, setItemDraft]     = React.useState("");
+  const [confirmCat, setConfirmCat]   = React.useState(null);
+  const [confirmItem, setConfirmItem] = React.useState(null);
+  const [monthComments, setMonthComments] = React.useState(() => {
+    try { const r = localStorage.getItem(`expenses:comments:${new Date().getFullYear()}`); return r ? JSON.parse(r) : {}; } catch { return {}; }
+  });
+
+  // Reload when year changes
+  React.useEffect(() => {
+    setData(loadExpenses(year));
+    setEditingCat(null); setEditingItem(null);
+    try { const r = localStorage.getItem(`expenses:comments:${year}`); setMonthComments(r ? JSON.parse(r) : {}); } catch { setMonthComments({}); }
+  }, [year]);
+
+  // Persist on every data change
+  React.useEffect(() => { saveExpenses(year, data); }, [data, year]);
+
+  function update(fn) { setData(prev => fn(JSON.parse(JSON.stringify(prev)))); }
+
+  // ── Category ops ─────────────────────────────────────────────────────────
+  function addCategory() {
+    update(d => { d.categories.push({ id: makeExpId(), name: "Nueva categoría", items: [] }); return d; });
+  }
+  function renameCategory(catId, name) {
+    update(d => { const c = d.categories.find(c=>c.id===catId); if(c) c.name=name; return d; });
+    setEditingCat(null);
+  }
+  function deleteCategory(catId) {
+    update(d => { d.categories = d.categories.filter(c=>c.id!==catId); return d; });
+    setConfirmCat(null);
+  }
+  function moveCategory(catId, dir) {
+    update(d => {
+      const i = d.categories.findIndex(c=>c.id===catId);
+      const j = i + dir;
+      if (j < 0 || j >= d.categories.length) return d;
+      [d.categories[i], d.categories[j]] = [d.categories[j], d.categories[i]];
+      return d;
+    });
+  }
+
+  // ── Asignación Objetivo (Current/Target por categoría + USD + Notas) ──────
+  function updateCategoryTarget(catKey, field, value) {
+    update(d => {
+      if (!d.targets) d.targets = JSON.parse(JSON.stringify(EMPTY_TARGETS));
+      if (!d.targets[catKey]) d.targets[catKey] = { current: "", target: "" };
+      d.targets[catKey][field] = value;
+      return d;
+    });
+  }
+  function updateTargetField(field, value) {
+    update(d => {
+      if (!d.targets) d.targets = JSON.parse(JSON.stringify(EMPTY_TARGETS));
+      d.targets[field] = value;
+      return d;
+    });
+  }
+
+  // ── Item ops ─────────────────────────────────────────────────────────────
+  function addItem(catId) {
+    update(d => {
+      const c = d.categories.find(c=>c.id===catId);
+      if (c) c.items.push({ id: makeExpId(), name: "Nuevo ítem", note: "", months: {} });
+      return d;
+    });
+  }
+  function renameItem(catId, itemId, name) {
+    update(d => {
+      const c = d.categories.find(c=>c.id===catId);
+      if (c) { const it = c.items.find(i=>i.id===itemId); if(it) it.name = name; }
+      return d;
+    });
+    setEditingItem(null);
+  }
+  function deleteItem(catId, itemId) {
+    update(d => {
+      const c = d.categories.find(c=>c.id===catId);
+      if (c) c.items = c.items.filter(i=>i.id!==itemId);
+      return d;
+    });
+  }
+  function setMonthValue(catId, itemId, month, value) {
+    update(d => {
+      const c = d.categories.find(c=>c.id===catId);
+      if (c) {
+        const it = c.items.find(i=>i.id===itemId);
+        if (it) { if (!it.months) it.months = {}; it.months[month] = value; }
+      }
+      return d;
+    });
+  }
+  function setMonthComment(catId, itemId, month, comment) {
+    update(d => {
+      const c = d.categories.find(c=>c.id===catId);
+      if (c) {
+        const it = c.items.find(i=>i.id===itemId);
+        if (it) {
+          if (!it.comments) it.comments = {};
+          it.comments[month] = comment;
+        }
+      }
+      return d;
+    });
+  }
+  function saveMonthHeaderComment(month, comment) {
+    setMonthComments(prev => {
+      const next = { ...prev, [month]: comment };
+      try { localStorage.setItem(`expenses:comments:${year}`, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }
+
+  // ── Totals ────────────────────────────────────────────────────────────────
+  function parseAmt(v) { return parseFloat((v||"").replace(/[^0-9.]/g,"")) || 0; }
+  function colTotal(m) {
+    return data.categories.flatMap(c=>c.items).reduce((s,it)=>s+parseAmt(it.months?.[m]),0);
+  }
+  function rowTotal(it) {
+    return Object.values(it.months||{}).reduce((s,v)=>s+parseAmt(v),0);
+  }
+  // Subtotal de UNA categoría puntual (usado para "Servicios Fijos" — la primera categoría)
+  function catColTotal(cat, m) {
+    return cat.items.reduce((s,it)=>s+parseAmt(it.months?.[m]),0);
+  }
+  function catGrandTotal(cat) {
+    return cat.items.reduce((s,it)=>s+rowTotal(it),0);
+  }
+
+  const accentColor = "#f97316"; // orange for expenses tab
+
+  // ── Year picker ───────────────────────────────────────────────────────────
+  const yearRange = Array.from({length:6},(_,i)=>now.getFullYear()-2+i);
+
+  const thSt = {
+    padding:"10px 10px", textAlign:"right", fontSize:10, fontWeight:500,
+    letterSpacing:"0.1em", textTransform:"uppercase",
+    color:C.textMuted, borderBottom:`1px solid ${C.border}`,
+    fontFamily:"'DM Mono',monospace", whiteSpace:"nowrap",
+    background:C.surface, position:"sticky", top:0, zIndex:2,
+  };
+
+  // Asignación Objetivo — con fallback para años que todavía no tienen este campo
+  const targets = data.targets || EMPTY_TARGETS;
+  const targetsSum = TARGET_CATEGORIES.reduce((s,c)=>s+(parseFloat(targets[c.key]?.target)||0),0);
+  const currentSum = TARGET_CATEGORIES.reduce((s,c)=>s+(parseFloat(targets[c.key]?.current)||0),0);
+
+  return (
+    <div style={{padding:"28px 28px 52px", maxWidth:1380, margin:"0 auto"}}>
+
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:24,flexWrap:"wrap",gap:12}}>
+        <div>
+          <h2 style={{fontFamily:"'Nunito',sans-serif",fontSize:22,fontWeight:800,color:C.text,margin:0,lineHeight:1}}>
+            Gastos <span style={{color:accentColor}}>{year}</span>
+          </h2>
+          <p style={{fontSize:12,color:C.textMuted,margin:"4px 0 0",fontFamily:"'DM Mono',monospace"}}>
+            Todos los valores en ARS · USD se anota como referencia
+          </p>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          {/* Year selector */}
+          <div style={{display:"flex",alignItems:"center",gap:3,background:C.card,border:`1px solid ${C.border}`,borderRadius:9,padding:3}}>
+            {yearRange.map(y=>{
+              const active=y===year;
+              return (
+                <button className={active?"kinetic-btn kinetic-chip-on":"kinetic-btn"} key={y} onClick={()=>setYear(y)} style={{
+                  background:active?accentColor:"transparent",border:"none",
+                  color:active?"#fff":C.textMuted,
+                  fontFamily:"'DM Mono',monospace",fontSize:12,fontWeight:600,
+                  padding:"5px 12px",cursor:"pointer",borderRadius:7,
+
+                }}>{y}</button>
+              );
+            })}
+          </div>
+          <button className="kinetic-btn" onClick={addCategory} style={{
+            background:`${accentColor}18`,border:`1px solid ${accentColor}60`,
+            color:accentColor,fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:600,
+            padding:"8px 16px",cursor:"pointer",borderRadius:9,
+            display:"flex",alignItems:"center",gap:6,
+          }}
+            onMouseEnter={e=>e.currentTarget.style.background=`${accentColor}30`}
+            onMouseLeave={e=>e.currentTarget.style.background=`${accentColor}18`}
+          >+ Categoría</button>
+        </div>
+      </div>
+
+      {/* Empty state */}
+      {data.categories.length === 0 && (
+        <div style={{
+          display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+          minHeight:300,gap:16,color:C.textMuted,
+          background:C.card,border:`1px solid ${C.border}`,borderRadius:16,
+        }}>
+          <div style={{fontSize:48}}>💸</div>
+          <div style={{fontFamily:"'Nunito',sans-serif",fontSize:18,fontWeight:700,color:C.text}}>Sin categorías aún</div>
+          <div style={{fontSize:13,color:C.textMuted,textAlign:"center",maxWidth:300,lineHeight:1.6}}>
+            Hacé clic en <strong style={{color:accentColor}}>+ Categoría</strong> para agregar tu primera categoría de gastos.
+          </div>
+        </div>
+      )}
+
+      {/* Main table */}
+      {data.categories.length > 0 && (
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:16,overflow:"hidden",marginBottom:24}}>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",minWidth:1100}}>
+              <thead>
+                <tr>
+                  <th style={{...thSt,textAlign:"left",width:280,position:"sticky",left:0,zIndex:3,paddingLeft:20}}>Ítem</th>
+                  {EXPENSE_MONTHS.map((m,i)=>(
+                    <th key={i} style={{...thSt,width:90,minWidth:90}}>
+                      <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+                        <span>{m}</span>
+                        <ExpCommentCell
+                          comment={monthComments?.[i+1]||""}
+                          onSave={v=>saveMonthHeaderComment(i+1,v)}
+                          color={accentColor}
+                        />
+                      </div>
+                    </th>
+                  ))}
+                  <th style={{...thSt,width:110,color:accentColor}}>Total</th>
+                  <th style={{...thSt,width:90,color:C.textMuted}}>Tendencia</th>
+                  <th style={{...thSt,width:44}}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.categories.map((cat,ci)=>(
+                  <React.Fragment key={cat.id}>
+                    {/* Category header row */}
+                    <tr style={{background:`${accentColor}0a`}}>
+                      <td colSpan={15} style={{padding:"8px 20px",borderBottom:`1px solid ${C.border}`}}>
+                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          {/* Move up/down */}
+                          <button onClick={()=>moveCategory(cat.id,-1)} disabled={ci===0} style={{background:"transparent",border:"none",color:ci===0?C.textMuted:C.textSub,cursor:ci===0?"default":"pointer",fontSize:12,padding:"0 3px",opacity:ci===0?0.3:1}}>▲</button>
+                          <button onClick={()=>moveCategory(cat.id,1)} disabled={ci===data.categories.length-1} style={{background:"transparent",border:"none",color:ci===data.categories.length-1?C.textMuted:C.textSub,cursor:ci===data.categories.length-1?"default":"pointer",fontSize:12,padding:"0 3px",opacity:ci===data.categories.length-1?0.3:1}}>▼</button>
+
+                          {editingCat===cat.id ? (
+                            <input autoFocus value={catDraft}
+                              onChange={e=>setCatDraft(e.target.value)}
+                              onBlur={()=>renameCategory(cat.id,catDraft||cat.name)}
+                              onKeyDown={e=>{if(e.key==="Enter")renameCategory(cat.id,catDraft||cat.name);if(e.key==="Escape")setEditingCat(null);}}
+                              style={{background:C.surface,border:`1px solid ${accentColor}`,borderRadius:6,color:C.text,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,padding:"3px 8px",outline:"none",minWidth:180}}
+                            />
+                          ) : (
+                            <span style={{fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,color:accentColor,fontStyle:"italic",cursor:"pointer"}}
+                              onClick={()=>{setCatDraft(cat.name);setEditingCat(cat.id);}}>
+                              {cat.name}
+                            </span>
+                          )}
+
+                          <div style={{display:"flex",alignItems:"center",gap:4,marginLeft:"auto"}}>
+                            <button className="kinetic-btn" onClick={()=>addItem(cat.id)} style={{
+                              background:`${accentColor}14`,border:`1px solid ${accentColor}40`,
+                              color:accentColor,fontFamily:"'DM Sans',sans-serif",fontSize:11,fontWeight:600,
+                              padding:"4px 10px",cursor:"pointer",borderRadius:7,
+                            }}
+                              onMouseEnter={e=>e.currentTarget.style.background=`${accentColor}28`}
+                              onMouseLeave={e=>e.currentTarget.style.background=`${accentColor}14`}
+                            >+ Ítem</button>
+                            {confirmCat===cat.id ? (
+                              <div style={{display:"flex",alignItems:"center",gap:5}}>
+                                <span style={{fontSize:11,color:C.red,fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap"}}>¿Eliminar?</span>
+                                <button onClick={()=>deleteCategory(cat.id)} style={{
+                                  background:C.redBg,border:`1px solid ${C.red}`,
+                                  color:C.red,fontSize:11,fontWeight:600,padding:"5px 10px",
+                                  cursor:"pointer",borderRadius:7,fontFamily:"'DM Sans',sans-serif",
+                                }}>Sí</button>
+                                <button onClick={()=>setConfirmCat(null)} style={{
+                                  background:"transparent",border:`1px solid ${C.border}`,
+                                  color:C.textMuted,fontSize:11,padding:"5px 10px",
+                                  cursor:"pointer",borderRadius:7,fontFamily:"'DM Sans',sans-serif",
+                                }}>No</button>
+                              </div>
+                            ) : (
+                              <button className="kinetic-btn" onClick={()=>setConfirmCat(cat.id)} style={{
+                                background:"transparent",border:`1px solid ${C.border}`,
+                                color:C.textMuted,fontSize:13,padding:"6px 12px",
+                                cursor:"pointer",borderRadius:7,
+                                minWidth:36,minHeight:34,
+                              }}
+                                onMouseEnter={e=>{e.currentTarget.style.borderColor=C.red;e.currentTarget.style.color=C.red;e.currentTarget.style.background=C.redBg;}}
+                                onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textMuted;e.currentTarget.style.background="transparent";}}
+                                title="Eliminar categoría"
+                              >🗑</button>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+
+                    {/* Item rows */}
+                    {cat.items.length === 0 && (
+                      <tr>
+                        <td colSpan={15} style={{padding:"10px 20px",borderBottom:`1px solid ${C.border}`,color:C.textMuted,fontSize:12,fontStyle:"italic"}}>
+                          Sin ítems — hacé clic en &quot;+ Ítem&quot; para agregar.
+                        </td>
+                      </tr>
+                    )}
+                    {cat.items.map((item,ii)=>(
+                      <tr key={item.id}
+                        onMouseEnter={e=>e.currentTarget.style.background=C.cardHover}
+                        onMouseLeave={e=>e.currentTarget.style.background="transparent"}
+                        style={{transition:"background 0.12s"}}
+                      >
+                        {/* Item name */}
+                        <td style={{padding:"6px 8px 6px 20px",borderBottom:`1px solid ${C.border}`,position:"sticky",left:0,background:"inherit",zIndex:1}}>
+                          {editingItem===item.id ? (
+                            <input autoFocus value={itemDraft}
+                              onChange={e=>setItemDraft(e.target.value)}
+                              onBlur={()=>renameItem(cat.id,item.id,itemDraft||item.name)}
+                              onKeyDown={e=>{if(e.key==="Enter")renameItem(cat.id,item.id,itemDraft||item.name);if(e.key==="Escape")setEditingItem(null);}}
+                              style={{background:C.surface,border:`1px solid ${accentColor}60`,borderRadius:6,color:C.text,fontFamily:"'DM Sans',sans-serif",fontSize:13,padding:"3px 8px",outline:"none",width:"100%",boxSizing:"border-box"}}
+                            />
+                          ) : (
+                            <span style={{fontSize:13,color:C.text,cursor:"pointer"}}
+                              onClick={()=>{setItemDraft(item.name);setEditingItem(item.id);}}>
+                              {item.name}
+                            </span>
+                          )}
+                        </td>
+                        {/* Month cells */}
+                        {EXPENSE_MONTHS.map((_,mi)=>(
+                          <td key={mi} style={{padding:"4px 6px",borderBottom:`1px solid ${C.border}`,minWidth:80}}>
+                            <ExpCell
+                              value={item.months?.[mi+1]||""}
+                              onChange={v=>setMonthValue(cat.id,item.id,mi+1,v)}
+                              color={accentColor}
+                            />
+
+                          </td>
+                        ))}
+                        {/* Row total */}
+                        <td style={{padding:"6px 10px",borderBottom:`1px solid ${C.border}`,textAlign:"right",fontFamily:"'DM Mono',monospace",fontSize:12,color:accentColor,fontWeight:600,whiteSpace:"nowrap"}}>
+                          {rowTotal(item)>0?fmt(rowTotal(item)):"—"}
+                        </td>
+                        {/* Sparkline */}
+                        <td style={{padding:"6px 10px",borderBottom:`1px solid ${C.border}`,textAlign:"center"}}>
+                          <ExpSparkline item={item} color={accentColor}/>
+                        </td>
+                        {/* Delete */}
+                        <td style={{padding:"6px 8px",borderBottom:`1px solid ${C.border}`,textAlign:"center"}}>
+                          <button className="kinetic-btn" onClick={()=>deleteItem(cat.id,item.id)} style={{
+                            background:"transparent",border:"none",color:C.textMuted,
+                            cursor:"pointer",fontSize:15,padding:"2px 5px",lineHeight:1,borderRadius:5,
+                          }}
+                            onMouseEnter={e=>{e.currentTarget.style.color=C.red;e.currentTarget.style.background=C.redBg;}}
+                            onMouseLeave={e=>{e.currentTarget.style.color=C.textMuted;e.currentTarget.style.background="transparent";}}
+                          >×</button>
+                        </td>
+                      </tr>
+                    ))}
+
+                    {/* Subtotal — solo para la primera categoría (Servicios Fijos) */}
+                    {ci === 0 && cat.items.length > 0 && (
+                      <tr style={{background:`${accentColor}08`}}>
+                        <td style={{padding:"9px 20px",borderBottom:`1px solid ${C.border}`,fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,fontStyle:"italic",color:C.textSub,position:"sticky",left:0,background:`${accentColor}08`}}>
+                          Subtotal
+                        </td>
+                        {EXPENSE_MONTHS.map((_,mi)=>(
+                          <td key={mi} style={{padding:"9px 10px",borderBottom:`1px solid ${C.border}`,textAlign:"right",fontFamily:"'DM Mono',monospace",fontSize:12,fontWeight:600,color:catColTotal(cat,mi+1)>0?C.textSub:C.textMuted,whiteSpace:"nowrap"}}>
+                            {catColTotal(cat,mi+1)>0?fmt(catColTotal(cat,mi+1)):"—"}
+                          </td>
+                        ))}
+                        <td style={{padding:"9px 10px",borderBottom:`1px solid ${C.border}`,textAlign:"right",fontFamily:"'DM Mono',monospace",fontSize:12,fontWeight:700,color:accentColor,whiteSpace:"nowrap"}}>
+                          {fmt(catGrandTotal(cat))}
+                        </td>
+                        <td style={{borderBottom:`1px solid ${C.border}`}}/>
+                        <td style={{borderBottom:`1px solid ${C.border}`}}/>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                ))}
+
+                {/* Total mensual row */}
+                <tr style={{background:`${accentColor}14`}}>
+                  <td style={{padding:"12px 20px",borderTop:`2px solid ${accentColor}60`,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,color:accentColor,position:"sticky",left:0,background:`${accentColor}14`}}>
+                    Total mensual
+                  </td>
+                  {EXPENSE_MONTHS.map((_,mi)=>(
+                    <td key={mi} style={{padding:"12px 10px",borderTop:`2px solid ${accentColor}60`,textAlign:"right",fontFamily:"'DM Mono',monospace",fontSize:13,fontWeight:700,color:colTotal(mi+1)>0?C.text:C.textMuted,whiteSpace:"nowrap"}}>
+                      {colTotal(mi+1)>0?fmt(colTotal(mi+1)):"—"}
+                    </td>
+                  ))}
+                  <td style={{padding:"12px 10px",borderTop:`2px solid ${accentColor}60`,textAlign:"right",fontFamily:"'DM Mono',monospace",fontSize:14,fontWeight:700,color:accentColor,whiteSpace:"nowrap"}}>
+                    {fmt(EXPENSE_MONTHS.reduce((_,__,mi)=>_+colTotal(mi+1),0))}
+                  </td>
+                  <td style={{borderTop:`2px solid ${accentColor}60`}}/>
+                  <td style={{borderTop:`2px solid ${accentColor}60`}}/>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Footer note */}
+      <div style={{fontSize:11,color:C.textMuted,fontFamily:"'DM Mono',monospace",textAlign:"right"}}>
+        Los datos se guardan automáticamente · Clic en cualquier celda para editar · USD se anota como referencia (ej: &quot;400 USD&quot;)
+      </div>
+
+      {/* ── Asignación Objetivo ─────────────────────────────────────────────── */}
+      <div style={{marginTop:32,background:C.card,border:`1px solid ${C.border}`,borderRadius:14,overflow:"hidden"}}>
+        <div style={{padding:"14px 20px",background:`linear-gradient(90deg,${accentColor}12,transparent)`,borderBottom:`1px solid ${C.border}`}}>
+          <div style={{fontFamily:"'Nunito',sans-serif",fontSize:16,fontWeight:700,color:C.text}}>Asignación Objetivo</div>
+          <div style={{fontSize:11,color:C.textMuted,marginTop:2}}>Current (manual) vs. Target por categoría</div>
+        </div>
+
+        <div style={{padding:"18px 20px",display:"flex",flexDirection:"column",gap:4}}>
+          {TARGET_CATEGORIES.map(cat=>{
+            const t = targets[cat.key] || {current:"",target:""};
+            const catColor = cat.color || accentColor;
+            const curNum = parseFloat(t.current);
+            const tgtNum = parseFloat(t.target);
+            const overTarget  = !isNaN(curNum) && !isNaN(tgtNum) && curNum > tgtNum;
+            const underTarget = !isNaN(curNum) && !isNaN(tgtNum) && curNum < tgtNum;
+            const statusColor = overTarget ? C.red : underTarget ? C.green : C.border;
+            const statusTitle = overTarget
+              ? `Supera el target (${fmt(tgtNum,0)} USD)`
+              : underTarget
+                ? `Por debajo del target (${fmt(tgtNum,0)} USD)`
+                : undefined;
+            return (
+              <div key={cat.key} style={{marginBottom:14,paddingLeft:12,borderLeft:`3px solid ${catColor}`}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                  <span style={{width:8,height:8,borderRadius:"50%",background:catColor,flexShrink:0}}/>
+                  <div style={{fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:14,color:catColor}}>{cat.label}</div>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+                  <label style={{display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{fontSize:12,color:C.textMuted,minWidth:56}}>Current:</span>
+                    <input value={t.current} onChange={e=>updateCategoryTarget(cat.key,"current",e.target.value)}
+                      placeholder="0" type="text" inputMode="decimal"
+                      title={statusTitle}
+                      style={{
+                        width:120,background:C.surface,
+                        border:`1px solid ${overTarget||underTarget?statusColor:C.border}`,borderRadius:7,
+                        color:overTarget||underTarget?statusColor:C.text,fontWeight:overTarget||underTarget?700:400,
+                        fontFamily:"'DM Mono',monospace",fontSize:13,padding:"6px 10px",outline:"none",textAlign:"right",
+                      }}
+                      onFocus={e=>e.target.style.borderColor=catColor}
+                      onBlur={e=>e.target.style.borderColor=overTarget||underTarget?statusColor:C.border}
+                    />
+                    {overTarget && <span title={statusTitle} style={{fontSize:13}}>⚠️</span>}
+                    {underTarget && <span title={statusTitle} style={{fontSize:13}}>✅</span>}
+                  </label>
+                  <label style={{display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{fontSize:12,color:C.textMuted,minWidth:48}}>Target:</span>
+                    <input value={t.target} onChange={e=>updateCategoryTarget(cat.key,"target",e.target.value)}
+                      placeholder="0" type="text" inputMode="decimal"
+                      style={{width:120,background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,fontFamily:"'DM Mono',monospace",fontSize:13,padding:"6px 10px",outline:"none",textAlign:"right",fontWeight:600}}
+                      onFocus={e=>e.target.style.borderColor=catColor}
+                      onBlur={e=>e.target.style.borderColor=C.border}
+                    />
+                    <span style={{fontSize:12,color:C.textMuted}}>USD</span>
+                  </label>
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Suma de los "current" — calculado, no editable */}
+          <div style={{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:14,padding:"12px 0",borderTop:`1px solid ${C.border}`,marginTop:4}}>
+            <span style={{fontFamily:"'DM Mono',monospace",fontSize:15,fontWeight:700,color:C.text}}>{fmt(currentSum,0)} USD</span>
+            <span style={{fontSize:12,fontWeight:600,color:C.textSub,fontStyle:"italic"}}>vs.</span>
+            <span style={{fontFamily:"'DM Mono',monospace",fontSize:15,fontWeight:700,color:accentColor}}>{fmt(targetsSum,0)} USD</span>
+          </div>
+
+          {/* USD — texto libre */}
+          <div style={{marginTop:18}}>
+            <div style={{fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:14,color:C.text,marginBottom:8}}>USD</div>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:12,color:C.textMuted,minWidth:56}}>Current:</span>
+              <input value={targets.usdCurrent||""} onChange={e=>updateTargetField("usdCurrent",e.target.value)}
+                placeholder="Ej: Depto., después reformas, vacaciones."
+                style={{flex:1,background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,fontFamily:"'DM Sans',sans-serif",fontSize:13,padding:"6px 10px",outline:"none"}}
+                onFocus={e=>e.target.style.borderColor=accentColor}
+                onBlur={e=>e.target.style.borderColor=C.border}
+              />
+            </div>
+          </div>
+
+          {/* Notas — texto libre, área más grande */}
+          <div style={{marginTop:18}}>
+            <div style={{fontSize:12,color:C.textMuted,marginBottom:8}}>Notas:</div>
+            <textarea value={targets.notas||""} onChange={e=>updateTargetField("notas",e.target.value)}
+              placeholder="Notas libres…"
+              autoCapitalize="off" autoCorrect="off"
+              style={{width:"100%",minHeight:90,background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,fontFamily:"'DM Sans',sans-serif",fontSize:13,padding:"10px 12px",outline:"none",resize:"vertical",boxSizing:"border-box",textTransform:"none",lineHeight:1.5}}
+              onFocus={e=>e.target.style.borderColor=accentColor}
+              onBlur={e=>e.target.style.borderColor=C.border}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+
+// ── Trading helpers ───────────────────────────────────────────────────────────
+function loadTrading(key) {
+  try { const r = localStorage.getItem(`trading:${key}`); return r ? JSON.parse(r) : []; }
+  catch { return []; }
+}
+function saveTrading(key, data) {
+  try { localStorage.setItem(`trading:${key}`, JSON.stringify(data)); } catch {}
+}
+function emptyTradingHistoricRow(base, extra) {
+  return {
+    id: `th${Date.now()}${Math.floor(Math.random()*1000)}`,
+    activo:            base?.activo            || "",
+    cant:              base?.cant              || "",
+    fechaCompra:       base?.fechaCompra       || "",
+    precioCompraARS:   base?.precioCompraARS   || "",
+    mepPromedioCompra: base?.mepPromedioCompra || "",
+    precioActualARS:   base?.precioActualARS   || "", // P. Cierre ARS
+    mepCierre:         extra?.mepCierre ?? base?.mepCierre ?? "",
+    fechaCierre:       base?.fechaCierre        || new Date().toLocaleDateString("es-AR",{day:"2-digit",month:"2-digit",year:"2-digit"}).replace(/\//g,"/"),
+    // Días de tenencia: capturado UNA VEZ al cerrar el trade. Valor estático de
+    // referencia — no se recalcula contra la fecha actual en ningún render.
+    dias:              extra?.dias ?? base?.dias ?? "",
+  };
+}
+
+function emptyTradingActiveRow() {
+  return {
+    id: `ta${Date.now()}${Math.floor(Math.random()*1000)}`,
+    activo: "", cant: "", fechaCompra: "", precioCompraARS: "",
+    mepPromedioCompra: "", precioUSD: "", precioActualARS: "",
+    precioActualUSD: "", mepActual: "",
+  };
+}
+
+function emptyTradingPortfolioRow() {
+  return {
+    id: `tp${Date.now()}${Math.floor(Math.random()*1000)}`,
+    ticker: "", name: "", market: "", beta: "", sector: "", type: "", strategy: "", amount: "", percent: "", target: "",
+  };
+}
+
+// Market options
+const TRADING_MARKETS  = ["US","AR","BR","INTL","OTHER"];
+const TRADING_TYPES    = ["Core ETF","Defensive","Dividend","Trade","Other"];
+// Reservado para cuando "Strategy" vuelva a ser una lista desplegable (por ahora es texto libre)
+const TRADING_STRATEGIES = ["Growth","Value","Income","Momentum","Swing","Core","Hedge","Speculative","Other"];
+const TRADING_SECTORS  = [
+  "Cons. Staples", "Cons. Discretionary", "Healthcare","Energy","IT","Financials",
+  "Comm. Services","Industrials","Materials","Real Estate","Utilities","Intl. Dev. Markets","S%P 500 Index","—"
+];
+
+// ── Trading — Portafolio Actual: color coding ────────────────────────────────
+const MARKET_COLORS = {
+  US:    "#60a5fa", // azul — mercado estadounidense
+  AR:    "#38bdf8", // celeste — mismo tono que Merval/Argentina en el resto de la app
+  BR:    "#4ade80", // verde — Brasil
+  INTL:  "#a78bfa", // violeta — internacional / desarrollados
+  OTHER: "#9ca3af", // gris neutro
+};
+function colorForMarket(market) { return MARKET_COLORS[market] || C.textMuted; }
+
+// Beta: 1.00 es el punto medio (misma volatilidad que el mercado). Por debajo
+// es defensivo (verde), por encima es más volátil (ámbar → rojo cuanto más alto).
+function colorForBeta(betaStr) {
+  const b = parseFloat(betaStr);
+  if (isNaN(b)) return C.textMuted;
+  if (b < 0.85) return C.green;
+  if (b <= 1.15) return C.textSub;   // ~1.00 — neutro, en línea con el mercado
+  if (b <= 1.5)  return C.amber;
+  return C.red;
+}
+
+// Paleta cíclica reutilizada del donut chart, para que Sector y el gráfico compartan colores
+const SECTOR_PALETTE = ["#06b6d4","#f59e0b","#a78bfa","#34d399","#f87171","#60a5fa","#fb923c","#e879f9","#4ade80","#facc15","#38bdf8","#c084fc","#fca5a5","#93c5fd"];
+const SECTOR_COLORS = Object.fromEntries(TRADING_SECTORS.map((s, i) => [s, SECTOR_PALETTE[i % SECTOR_PALETTE.length]]));
+function colorForSector(sector) { return sector ? (SECTOR_COLORS[sector] || C.textMuted) : C.textMuted; }
+
+// TYPE_COLORS / colorForType — definidos junto a CEDEAR_TYPES (fuente única
+// compartida con Portfolio → CEDEARs, ya que usan la misma taxonomía de Tipo).
+
+
+// ── Trading: Portafolio Actual table ─────────────────────────────────────────
+function TradingPortfolioTable() {
+  const COLOR = "#06b6d4";
+  const [rows, setRows] = React.useState(() => {
+    const saved = loadTrading("portfolio");
+    return saved.length ? saved : [emptyTradingPortfolioRow()];
+  });
+  // Sort state — display-only, does not mutate the underlying stored row order
+  const [sortField, setSortField] = React.useState(null); // "amount" | "type" | "percent"
+  const [sortDir, setSortDir]     = React.useState("desc"); // "asc" | "desc"
+  const nameTimers = React.useRef({}); // debounce per-row, mismo patrón que la sección CEDEARs
+
+  // Auto-save on every change
+  React.useEffect(() => { saveTrading("portfolio", rows); }, [rows]);
+
+  // Autocompletar "Empresa" a partir del ticker — mismo lookup y misma lógica
+  // de debounce (500ms) que se usa en la sección CEDEARs.
+  function resolveTickerName(id, ticker) {
+    if (!ticker || ticker.length < 1) return;
+    const name = CEDEAR_NAMES[ticker.toUpperCase()] || null;
+    if (name) setRows(prev => prev.map(r => (r.id === id && !r.name) ? { ...r, name } : r));
+  }
+
+  function updateRow(id, field, value) {
+    setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
+    if (field === "ticker") {
+      clearTimeout(nameTimers.current[id]);
+      nameTimers.current[id] = setTimeout(() => resolveTickerName(id, value), 500);
+    }
+  }
+  function addRow() { setRows(prev => [...prev, emptyTradingPortfolioRow()]); }
+  function removeRow(id) { setRows(prev => prev.filter(r => r.id !== id)); }
+
+  const inpSt = {
+    background: "transparent", border: "none", outline: "none",
+    color: C.text, fontFamily: "'DM Mono',monospace",
+    fontSize: 12, padding: "4px 6px", width: "100%",
+    borderRadius: 6, transition: "background 0.15s",
+  };
+  const thSt = {
+    color: C.textMuted, fontSize: 10, fontWeight: 500,
+    letterSpacing: "0.1em", textTransform: "uppercase",
+    padding: "10px 12px", textAlign: "left",
+    borderBottom: `1px solid ${C.border}`,
+    fontFamily: "'DM Mono',monospace", whiteSpace: "nowrap",
+    background: C.surface,
+  };
+  const tdSt = {
+    padding: "8px 12px", borderBottom: `1px solid ${C.border}`,
+    verticalAlign: "middle", fontSize: 13,
+  };
+
+  // Totals
+  const totalAmount = rows.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+
+  // % de cada posición sobre el total del portafolio — SIEMPRE calculado
+  // automáticamente a partir de "Monto", nunca cargado a mano.
+  function pctOf(row) {
+    const amt = parseFloat(row.amount) || 0;
+    return totalAmount > 0 ? (amt / totalAmount) * 100 : 0;
+  }
+  const totalPercent = rows.reduce((s, r) => s + pctOf(r), 0); // ≈100 si hay algún monto cargado
+
+  // Promedio de Beta — solo sobre las filas que tienen un valor cargado
+  const betaRows = rows.filter(r => r.beta !== "" && r.beta !== undefined && !isNaN(parseFloat(r.beta)));
+  const avgBeta = betaRows.length > 0 ? betaRows.reduce((s, r) => s + parseFloat(r.beta), 0) / betaRows.length : null;
+
+  // Filas ordenadas para mostrar (no reordena lo guardado en localStorage)
+  const displayRows = React.useMemo(() => {
+    if (!sortField) return rows;
+    const dir = sortDir === "asc" ? 1 : -1;
+    return [...rows].sort((a, b) => {
+      let av, bv;
+      if (sortField === "amount")      { av = parseFloat(a.amount) || 0; bv = parseFloat(b.amount) || 0; }
+      else if (sortField === "beta")   { av = parseFloat(a.beta)   || 0; bv = parseFloat(b.beta)   || 0; }
+      else if (sortField === "type")   { av = (a.type   || "").toLowerCase(); bv = (b.type   || "").toLowerCase(); }
+      else if (sortField === "sector") { av = (a.sector || "").toLowerCase(); bv = (b.sector || "").toLowerCase(); }
+      if (av < bv) return -1 * dir;
+      if (av > bv) return  1 * dir;
+      return 0;
+    });
+  }, [rows, sortField, sortDir, totalAmount]);
+
+  function toggleSort(field, defaultDir) {
+    if (sortField === field) {
+      setSortDir(d => d === "asc" ? "desc" : "asc");
+    } else {
+      setSortField(field);
+      setSortDir(defaultDir);
+    }
+  }
+
+  const SORT_BUTTONS = [
+    { field: "amount", label: "Monto",  defaultDir: "desc" },
+    { field: "type",   label: "Tipo",   defaultDir: "asc"  },
+    { field: "beta",   label: "Beta",   defaultDir: "desc" },
+    { field: "sector", label: "Sector", defaultDir: "asc"  },
+  ];
+
+  // Inline select helper — colorFn(value) opcionalmente pinta un punto + el texto
+  function SelectCell({ id, field, value, options, colorFn }) {
+    const col = colorFn ? colorFn(value) : null;
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        {colorFn && <span style={{ width: 8, height: 8, borderRadius: 2, background: col, flexShrink: 0 }} />}
+        <select value={value} onChange={e => updateRow(id, field, e.target.value)}
+          style={{ ...inpSt, cursor: "pointer", appearance: "none", WebkitAppearance: "none", color: col || C.text }}
+          onFocus={e => e.target.style.background = `${COLOR}12`}
+          onBlur={e  => e.target.style.background = "transparent"}
+        >
+          <option value="">—</option>
+          {options.map(o => <option key={o} value={o} style={{ color: C.text, background: C.card }}>{o}</option>)}
+        </select>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {/* Toolbar */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 20px", borderBottom: `1px solid ${C.border}`, flexWrap: "wrap", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {rows.filter(r => r.ticker).length > 0 && (
+            <span key={rows.filter(r => r.ticker).length} className="kinetic-badge" style={{
+              background: `${COLOR}18`, color: COLOR,
+              fontFamily: "'DM Mono',monospace", fontSize: 10, fontWeight: 600,
+              padding: "2px 8px", borderRadius: 99,
+            }}>{rows.filter(r => r.ticker).length} posiciones</span>
+          )}
+        </div>
+        <button className="kinetic-btn" onClick={addRow} style={{
+          background: `${COLOR}14`, border: `1px solid ${COLOR}44`,
+          color: COLOR, fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 600,
+          padding: "7px 16px", cursor: "pointer", borderRadius: 9,
+        }}
+          onMouseEnter={e => e.currentTarget.style.background = `${COLOR}28`}
+          onMouseLeave={e => e.currentTarget.style.background = `${COLOR}14`}
+        >+ Agregar posición</button>
+      </div>
+
+      {/* Sort toolbar */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 20px", borderBottom: `1px solid ${C.border}`, background: C.surface, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", fontFamily: "'DM Mono',monospace" }}>
+          Ordenar por
+        </span>
+        {SORT_BUTTONS.map(({ field, label, defaultDir }) => {
+          const isActive = sortField === field;
+          const arrow = isActive ? (sortDir === "asc" ? "↑" : "↓") : "↕";
+          return (
+            <button className="kinetic-btn" key={field} onClick={() => toggleSort(field, defaultDir)} style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "7px 14px", minHeight: 32,
+              background: isActive ? `${COLOR}18` : C.card,
+              border: `1px solid ${isActive ? COLOR + "60" : C.border}`,
+              borderRadius: 8, cursor: "pointer",
+              fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: isActive ? 600 : 400,
+              color: isActive ? COLOR : C.textSub,
+
+            }}
+              onMouseEnter={e => { if (!isActive) { e.currentTarget.style.borderColor = COLOR + "40"; e.currentTarget.style.color = COLOR; } }}
+              onMouseLeave={e => { if (!isActive) { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.textSub; } }}
+            >
+              {label}
+              <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 12 }}>{arrow}</span>
+            </button>
+          );
+        })}
+        {sortField && (
+          <button onClick={() => setSortField(null)} style={{
+            background: "transparent", border: "none", color: C.textMuted,
+            fontFamily: "'DM Sans',sans-serif", fontSize: 11, cursor: "pointer",
+            padding: "6px 8px", textDecoration: "underline", textUnderlineOffset: 2,
+          }}>Limpiar orden</button>
+        )}
+      </div>
+
+      {/* Table */}
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 980 }}>
+          <thead>
+            <tr>
+              <th style={{ ...thSt, width: 60  }}>Ticker</th>
+              <th style={{ ...thSt             }}>Empresa</th>
+              <th style={{ ...thSt, width: 85  }}>Mercado</th>
+              <th style={{ ...thSt, width: 70, textAlign: "right" }}>Beta</th>
+              <th style={{ ...thSt, width: 190 }}>Sector</th>
+              <th style={{ ...thSt, width: 125 }}>Tipo</th>
+              <th style={{ ...thSt, width: 90,  textAlign: "right" }}>Monto</th>
+              <th style={{ ...thSt, width: 125 }}>Strategy</th>
+              <th style={{ ...thSt, width: 90,  textAlign: "right" }} title="Calculado automáticamente sobre el total del portafolio">%</th>
+              <th style={{ ...thSt, width: 40  }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {displayRows.length === 0 && (
+              <tr><td colSpan={10} style={{ ...tdSt, textAlign: "center", color: C.textMuted, padding: 36 }}>
+                Sin posiciones. Hacé clic en &quot;+ Agregar posición&quot;.
+              </td></tr>
+            )}
+            {displayRows.map(row => (
+              <tr key={row.id}
+                onMouseEnter={e => e.currentTarget.style.background = C.cardHover}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                style={{ transition: "background 0.12s" }}
+              >
+                {/* Ticker */}
+                <td style={tdSt}>
+                  <input value={row.ticker} onChange={e => updateRow(row.id, "ticker", e.target.value.toUpperCase())}
+                    placeholder="—" style={{ ...inpSt, fontWeight: 700, color: COLOR, letterSpacing: "0.03em", width: 50, padding: "4px 2px" }}
+                    onFocus={e => e.target.style.background = `${COLOR}12`}
+                    onBlur={e  => e.target.style.background = "transparent"}
+                  />
+                </td>
+                {/* Name */}
+                <td style={tdSt}>
+                  <input value={row.name} onChange={e => updateRow(row.id, "name", e.target.value)}
+                    placeholder="Nombre…" style={{ ...inpSt, color: C.textSub }}
+                    onFocus={e => e.target.style.background = C.surface}
+                    onBlur={e  => e.target.style.background = "transparent"}
+                  />
+                </td>
+                {/* Market */}
+                <td style={tdSt}>
+                  <SelectCell id={row.id} field="market" value={row.market} options={TRADING_MARKETS} colorFn={colorForMarket}/>
+                </td>
+                {/* Beta — coloreado con 1.00 como punto medio (verde defensivo, ámbar/rojo más volátil) */}
+                <td style={{ ...tdSt, textAlign: "right" }}>
+                  <input value={row.beta} onChange={e => updateRow(row.id, "beta", e.target.value)}
+                    placeholder="0.00" type="text" inputMode="decimal"
+                    style={{ ...inpSt, textAlign: "right", width: 56, color: colorForBeta(row.beta), fontWeight: row.beta ? 600 : 400 }}
+                    onFocus={e => e.target.style.background = C.surface}
+                    onBlur={e  => e.target.style.background = "transparent"}
+                  />
+                </td>
+                {/* Sector */}
+                <td style={tdSt}>
+                  <SelectCell id={row.id} field="sector" value={row.sector} options={TRADING_SECTORS} colorFn={colorForSector}/>
+                </td>
+                {/* Type */}
+                <td style={tdSt}>
+                  <SelectCell id={row.id} field="type" value={row.type} options={TRADING_TYPES} colorFn={colorForType}/>
+                </td>
+                {/* Amount */}
+                <td style={{ ...tdSt, textAlign: "right" }}>
+                  <input value={row.amount} onChange={e => updateRow(row.id, "amount", e.target.value)}
+                    placeholder="0" type="text" inputMode="decimal"
+                    style={{ ...inpSt, textAlign: "right", width: 78 }}
+                    onFocus={e => e.target.style.background = C.surface}
+                    onBlur={e  => e.target.style.background = "transparent"}
+                  />
+                </td>
+                {/* Strategy — texto libre por ahora (podrá pasar a lista desplegable más adelante) */}
+                <td style={tdSt}>
+                  <input value={row.strategy} onChange={e => updateRow(row.id, "strategy", e.target.value)}
+                    placeholder="Ej: Growth…" style={{ ...inpSt, color: C.textSub }}
+                    onFocus={e => e.target.style.background = C.surface}
+                    onBlur={e  => e.target.style.background = "transparent"}
+                  />
+                </td>
+                {/* Percent — computed, read-only */}
+                <td style={{ ...tdSt, textAlign: "right", background: `${COLOR}06` }}>
+                  <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 12, color: C.textSub, fontStyle: "italic" }}>
+                    {row.amount ? `${fmt(pctOf(row), 1)}%` : "—"}
+                  </span>
+                </td>
+                {/* Delete */}
+                <td style={{ ...tdSt, textAlign: "center" }}>
+                  <button className="kinetic-btn-sm" onClick={() => removeRow(row.id)} style={{
+                    background: "transparent", border: "none", color: C.textMuted,
+                    cursor: "pointer", fontSize: 16, padding: "2px 6px", lineHeight: 1,
+                    borderRadius: 6,
+                  }}
+                    onMouseEnter={e => { e.currentTarget.style.color = C.red; e.currentTarget.style.background = C.redBg; }}
+                    onMouseLeave={e => { e.currentTarget.style.color = C.textMuted; e.currentTarget.style.background = "transparent"; }}
+                  >×</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          {/* Totals footer */}
+          {rows.some(r => r.amount) && (
+            <tfoot>
+              <tr style={{ background: `${COLOR}0c` }}>
+                <td colSpan={3} style={{ padding: "10px 12px", borderTop: `2px solid ${COLOR}40`, fontFamily: "'DM Sans',sans-serif", fontWeight: 700, fontSize: 12, color: COLOR }}>
+                  Totales
+                </td>
+                <td style={{ padding: "10px 12px", borderTop: `2px solid ${COLOR}40`, textAlign: "right", fontFamily: "'DM Mono',monospace", fontSize: 12, fontWeight: 700, color: colorForBeta(avgBeta) }}>
+                  {avgBeta !== null ? fmt(avgBeta, 2) : "—"}
+                </td>
+                <td colSpan={2} style={{ borderTop: `2px solid ${COLOR}40` }} />
+                <td style={{ padding: "10px 12px", borderTop: `2px solid ${COLOR}40`, textAlign: "right", fontFamily: "'DM Mono',monospace", fontSize: 12, fontWeight: 700, color: C.text }}>
+                  {totalAmount > 0 ? fmt(totalAmount) : "—"}
+                </td>
+                <td style={{ borderTop: `2px solid ${COLOR}40` }} />
+                <td style={{ padding: "10px 12px", borderTop: `2px solid ${COLOR}40`, textAlign: "right", fontFamily: "'DM Mono',monospace", fontSize: 12, fontWeight: 700, color: Math.round(totalPercent) === 100 ? C.green : C.amber }}>
+                  {totalPercent > 0 ? fmt(totalPercent, 1) + "%" : "—"}
+                </td>
+                <td style={{ borderTop: `2px solid ${COLOR}40` }} />
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+
+      {/* Pie chart — % de cada ticker sobre el total del portafolio */}
+      {(() => {
+        const chartRows = rows.filter(r => r.ticker && parseFloat(r.amount) > 0);
+        if (chartRows.length < 1) return null;
+
+        const CHART_COLORS = [
+          "#06b6d4","#f59e0b","#a78bfa","#34d399","#f87171",
+          "#60a5fa","#fb923c","#e879f9","#4ade80","#facc15",
+          "#38bdf8","#c084fc",
+        ];
+
+        const chartData = chartRows
+          .map(r => ({
+            name:  r.ticker,
+            label: r.name || r.ticker,
+            value: pctOf(r), // % del portafolio total (no el monto en $)
+          }))
+          .sort((a, b) => a.value - b.value); // menor a mayor, según lo pedido
+        const total = chartData.reduce((s, d) => s + d.value, 0);
+
+        return (
+          <div style={{
+            borderTop: `1px solid ${COLOR}28`,
+            padding: "20px 22px",
+            display: "grid",
+            gridTemplateColumns: "200px 1fr",
+            gap: 28,
+            alignItems: "center",
+          }}>
+            {/* Donut */}
+            <div style={{ position: "relative", width: 200, height: 200 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={chartData} cx="50%" cy="50%"
+                    innerRadius={54} outerRadius={80}
+                    paddingAngle={2} dataKey="value" strokeWidth={0}
+                  >
+                    {chartData.map((_, i) => (
+                      <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, fontFamily: "'DM Mono',monospace", fontSize: 11 }}
+                    formatter={(v, n) => [`${fmt(v, 1)}%`, n]}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+              {/* Center label */}
+              <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", textAlign: "center", pointerEvents: "none" }}>
+                <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 10, color: C.textMuted }}>{chartData.length} pos.</div>
+              </div>
+            </div>
+
+            {/* Legend */}
+            <div>
+              <div style={{ color: C.textMuted, fontSize: 10, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 }}>
+                Distribución (% del portafolio)
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                {chartData.map((d, i) => {
+                  const pct = total > 0 ? (d.value / total) * 100 : 0;
+                  const col = CHART_COLORS[i % CHART_COLORS.length];
+                  return (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ width: 8, height: 8, borderRadius: 2, background: col, flexShrink: 0 }} />
+                      <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 12, color: col, fontWeight: 600, width: 52, flexShrink: 0 }}>{d.name}</span>
+                      <span style={{ fontSize: 11, color: C.textSub, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.label !== d.name ? d.label : ""}</span>
+                      <div style={{ width: 100, height: 5, background: C.border, borderRadius: 99, overflow: "hidden", flexShrink: 0 }}>
+                        <div style={{ width: `${pct}%`, height: "100%", background: col, borderRadius: 99 }} />
+                      </div>
+                      <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 11, color: C.text, width: 48, textAlign: "right", flexShrink: 0 }}>
+                        {fmt(d.value, 1)}%
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
+
+
+// ── Trading: Operaciones Activas table ───────────────────────────────────────
+function TradingActiveTable() {
+  const COLOR = "#f59e0b";
+  const [rows, setRows] = React.useState(() => {
+    const saved = loadTrading("active");
+    return saved.length ? saved : [emptyTradingActiveRow()];
+  });
+  const [mepHoy, setMepHoy] = React.useState(() => {
+    try { return localStorage.getItem("trading:mepHoy") || ""; } catch { return ""; }
+  });
+
+  React.useEffect(() => { saveTrading("active", rows); }, [rows]);
+  React.useEffect(() => {
+    try { localStorage.setItem("trading:mepHoy", mepHoy); } catch {}
+  }, [mepHoy]);
+
+  function updateRow(id, field, value) {
+    setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
+  }
+  function addRow() { setRows(prev => [...prev, emptyTradingActiveRow()]); }
+  function removeRow(id) { setRows(prev => prev.filter(r => r.id !== id)); }
+  function closeToHistoric(row) {
+    // Snapshot días de tenencia and MEP hoy at the moment of closing — these
+    // become static reference values in the historic row (see emptyTradingHistoricRow).
+    const { diasTenencia } = calc(row);
+    const historic = loadTrading("historic");
+    const closed = emptyTradingHistoricRow(row, {
+      mepCierre: mepHoy,
+      dias: diasTenencia !== null ? diasTenencia : "",
+    });
+    saveTrading("historic", [closed, ...historic]);
+    // Remove from active
+    setRows(prev => prev.filter(r => r.id !== row.id));
+  }
+
+  // Ordenamiento — display-only, no reordena lo guardado en localStorage
+  const [sortKey, setSortKey] = React.useState(null); // null | "fecha" | "plARS" | "plUSD"
+  const [sortDir, setSortDir] = React.useState("desc");
+  function toggleSort(key, defaultDir = "desc") {
+    if (sortKey === key) setSortDir(d => d === "desc" ? "asc" : "desc");
+    else { setSortKey(key); setSortDir(defaultDir); }
+  }
+  // F. Compra tiene año completo (dd/mm/yyyy) — se puede ordenar cronológicamente de verdad
+  function parseFechaCompra(str) {
+    if (!str) return null;
+    const parts = str.split("/");
+    if (parts.length !== 3) return null;
+    const d = new Date(`${parts[2]}-${parts[1].padStart(2,"0")}-${parts[0].padStart(2,"0")}`);
+    return isNaN(d) ? null : d.getTime();
+  }
+  const displayRows = sortKey ? [...rows].sort((a, b) => {
+    let av, bv;
+    if (sortKey === "fecha") { av = parseFechaCompra(a.fechaCompra) ?? -Infinity; bv = parseFechaCompra(b.fechaCompra) ?? -Infinity; }
+    else if (sortKey === "plARS") { av = calc(a).plPctARS ?? -Infinity; bv = calc(b).plPctARS ?? -Infinity; }
+    else { av = calc(a).plPctUSD ?? -Infinity; bv = calc(b).plPctUSD ?? -Infinity; }
+    return sortDir === "desc" ? bv - av : av - bv;
+  }) : rows;
+
+  // Calculations per row
+  function calc(row) {
+    const cant          = parseFloat(row.cant)            || 0;
+    const pCompraARS    = parseFloat(row.precioCompraARS)  || 0;
+    const mepCompra     = parseFloat(row.mepPromedioCompra)|| 0;
+    const pActualARS    = parseFloat(row.precioActualARS)  || 0;
+    const mepHoyNum     = parseFloat(mepHoy)              || 0;
+
+    // Precio en USD at purchase (ARS ÷ MEP de compra)
+    const precioCompraUSD = mepCompra > 0 ? pCompraARS / mepCompra : null;
+
+    // Precio actual USD (ARS actual ÷ MEP hoy)
+    const precioActualUSD = (pActualARS > 0 && mepHoyNum > 0) ? pActualARS / mepHoyNum : null;
+
+    // P/L % ARS
+    const plPctARS = (pCompraARS > 0 && pActualARS > 0)
+      ? ((pActualARS - pCompraARS) / pCompraARS) * 100 : null;
+
+    // P/L % USD
+    const plPctUSD = (precioCompraUSD !== null && precioActualUSD !== null && precioCompraUSD > 0)
+      ? ((precioActualUSD - precioCompraUSD) / precioCompraUSD) * 100 : null;
+
+    // Days held
+    let diasTenencia = null;
+    if (row.fechaCompra) {
+      const parts = row.fechaCompra.split("/");
+      if (parts.length === 3) {
+        const d = new Date(`${parts[2]}-${parts[1].padStart(2,"0")}-${parts[0].padStart(2,"0")}`);
+        if (!isNaN(d)) diasTenencia = Math.floor((Date.now() - d.getTime()) / 86400000);
+      }
+    }
+
+    return { precioCompraUSD, precioActualUSD, plPctARS, plPctUSD, diasTenencia };
+  }
+
+  const inpSt = {
+    background: "transparent", border: "none", outline: "none",
+    color: C.text, fontFamily: "'DM Mono',monospace",
+    fontSize: 12, padding: "4px 6px", width: "100%",
+    borderRadius: 6, transition: "background 0.15s",
+  };
+  const thSt = {
+    color: C.textMuted, fontSize: 10, fontWeight: 500,
+    letterSpacing: "0.08em", textTransform: "uppercase",
+    padding: "10px 10px", textAlign: "left",
+    borderBottom: `1px solid ${C.border}`,
+    fontFamily: "'DM Mono',monospace", whiteSpace: "nowrap",
+    background: C.surface,
+  };
+  const tdSt = {
+    padding: "8px 10px", borderBottom: `1px solid ${C.border}`,
+    verticalAlign: "middle", fontSize: 12,
+  };
+
+  function PnLBadge({ val }) {
+    if (val === null) return <span style={{color:C.textMuted}}>—</span>;
+    return (
+      <span style={{
+        color: pnlColor(val),
+        background: pnlBg(val),
+        fontFamily: "'DM Mono',monospace",
+        fontWeight: 700, fontSize: 12,
+        padding: "2px 7px", borderRadius: 6,
+      }}>{val > 0 ? "+" : ""}{fmt(val, 2)}%</span>
+    );
+  }
+
+  const today = new Date().toLocaleDateString("es-AR", { day:"2-digit", month:"2-digit", year:"numeric" });
+
+  return (
+    <div>
+      {/* MEP Hoy banner */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 16,
+        padding: "10px 20px", borderBottom: `1px solid ${C.border}`,
+        background: `${COLOR}0a`, flexWrap: "wrap",
+      }}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:11,color:C.textMuted,fontFamily:"'DM Mono',monospace",letterSpacing:"0.06em",textTransform:"uppercase"}}>Fecha hoy</span>
+          <span style={{fontSize:12,color:C.text,fontFamily:"'DM Mono',monospace",fontWeight:600}}>{today}</span>
+        </div>
+        <div style={{width:1,height:20,background:C.border}}/>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:11,color:C.textMuted,fontFamily:"'DM Mono',monospace",letterSpacing:"0.06em",textTransform:"uppercase"}}>MEP hoy</span>
+          <span style={{color:C.textMuted,fontSize:13,fontFamily:"'DM Mono',monospace"}}>$</span>
+          <input
+            type="text" inputMode="decimal" value={mepHoy}
+            onChange={e=>setMepHoy(e.target.value)}
+            placeholder="0,00"
+            style={{...inpSt,width:100,background:C.surface,border:`1px solid ${COLOR}40`,borderRadius:7,padding:"4px 10px",color:COLOR,fontWeight:600}}
+          />
+        </div>
+        <div style={{flex:1}}/>
+        {rows.filter(r=>r.activo).length > 0 && (
+          <span key={rows.filter(r=>r.activo).length} className="kinetic-badge" style={{background:`${COLOR}18`,color:COLOR,fontFamily:"'DM Mono',monospace",fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:99}}>
+            {rows.filter(r=>r.activo).length} operaciones
+          </span>
+        )}
+        <button className="kinetic-btn" onClick={addRow} style={{
+          background:`${COLOR}14`,border:`1px solid ${COLOR}44`,
+          color:COLOR,fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:600,
+          padding:"7px 16px",cursor:"pointer",borderRadius:9,
+        }}
+          onMouseEnter={e=>e.currentTarget.style.background=`${COLOR}28`}
+          onMouseLeave={e=>e.currentTarget.style.background=`${COLOR}14`}
+        >+ Agregar</button>
+      </div>
+
+      {/* Color legend */}
+      <div style={{display:"flex",gap:16,padding:"8px 20px",borderBottom:`1px solid ${C.border}`,background:C.surface,flexWrap:"wrap"}}>
+        <span style={{fontSize:10,color:C.textMuted,fontFamily:"'DM Mono',monospace",display:"flex",alignItems:"center",gap:5}}>
+          <span style={{width:10,height:10,borderRadius:2,background:C.green,display:"inline-block"}}/>
+          Verde = completo al comprar
+        </span>
+        <span style={{fontSize:10,color:C.textMuted,fontFamily:"'DM Mono',monospace",display:"flex",alignItems:"center",gap:5}}>
+          <span style={{width:10,height:10,borderRadius:2,background:COLOR,display:"inline-block"}}/>
+          Naranja = actualizar para cálculo actual
+        </span>
+      </div>
+
+      {/* Table */}
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",minWidth:1100}}>
+          <thead>
+            <tr>
+              <th style={{...thSt,width:80}}>Activo</th>
+              <th style={{...thSt,width:70,textAlign:"right"}}>Cant.</th>
+              <th style={{...thSt,width:110}}>
+                <span style={{display:"inline-flex",alignItems:"center",gap:2}}>
+                  F. Compra
+                  <SortButton active={sortKey==="fecha"} dir={sortDir} onClick={()=>toggleSort("fecha","desc")}/>
+                </span>
+              </th>
+              <th style={{...thSt,width:120,textAlign:"right",color:C.green}}>P. Compra ARS</th>
+              <th style={{...thSt,width:120,textAlign:"right",color:C.green}}>MEP Prom. Compra</th>
+              <th style={{...thSt,width:110,textAlign:"right",color:C.green}}>P. en USD</th>
+              <th style={{...thSt,width:120,textAlign:"right",color:COLOR}}>P. Actual ARS</th>
+              <th style={{...thSt,width:110,textAlign:"right",color:COLOR}}>P. Actual USD</th>
+              <th style={{...thSt,width:90,textAlign:"right"}}>
+                <span style={{display:"inline-flex",alignItems:"center",justifyContent:"flex-end",gap:2}}>
+                  P/L % ARS
+                  <SortButton active={sortKey==="plARS"} dir={sortDir} onClick={()=>toggleSort("plARS","desc")}/>
+                </span>
+              </th>
+              <th style={{...thSt,width:90,textAlign:"right"}}>
+                <span style={{display:"inline-flex",alignItems:"center",justifyContent:"flex-end",gap:2}}>
+                  P/L % USD
+                  <SortButton active={sortKey==="plUSD"} dir={sortDir} onClick={()=>toggleSort("plUSD","desc")}/>
+                </span>
+              </th>
+              <th style={{...thSt,width:80,textAlign:"right"}}>Días</th>
+              <th style={{...thSt,width:80,color:"#a78bfa"}}>Cerrar</th>
+              <th style={{...thSt,width:40}}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 && (
+              <tr><td colSpan={13} style={{...tdSt,textAlign:"center",color:C.textMuted,padding:36}}>
+                Sin operaciones activas.
+              </td></tr>
+            )}
+            {displayRows.map(row => {
+              const { precioCompraUSD, precioActualUSD, plPctARS, plPctUSD, diasTenencia } = calc(row);
+              return (
+                <tr key={row.id}
+                  onMouseEnter={e=>e.currentTarget.style.background=C.cardHover}
+                  onMouseLeave={e=>e.currentTarget.style.background="transparent"}
+                  style={{transition:"background 0.12s"}}
+                >
+                  {/* Activo */}
+                  <td style={tdSt}>
+                    <input value={row.activo} onChange={e=>updateRow(row.id,"activo",e.target.value.toUpperCase())}
+                      placeholder="—" style={{...inpSt,fontWeight:700,color:COLOR,letterSpacing:"0.05em",width:68}}
+                      onFocus={e=>e.target.style.background=`${COLOR}12`}
+                      onBlur={e=>e.target.style.background="transparent"}
+                    />
+                  </td>
+                  {/* Cant */}
+                  <td style={{...tdSt,textAlign:"right"}}>
+                    <input value={row.cant} onChange={e=>updateRow(row.id,"cant",e.target.value)}
+                      placeholder="0" type="text" inputMode="decimal"
+                      style={{...inpSt,textAlign:"right",width:60}}
+                      onFocus={e=>e.target.style.background=C.surface}
+                      onBlur={e=>e.target.style.background="transparent"}
+                    />
+                  </td>
+                  {/* Fecha compra */}
+                  <td style={tdSt}>
+                    <input value={row.fechaCompra} onChange={e=>updateRow(row.id,"fechaCompra",e.target.value)}
+                      placeholder="dd/mm/aa" style={{...inpSt,width:90}}
+                      onFocus={e=>e.target.style.background=C.surface}
+                      onBlur={e=>e.target.style.background="transparent"}
+                    />
+                  </td>
+                  {/* Precio compra ARS — green (input at buy) */}
+                  <td style={{...tdSt,textAlign:"right",background:`${C.green}06`}}>
+                    <input value={row.precioCompraARS} onChange={e=>updateRow(row.id,"precioCompraARS",e.target.value)}
+                      placeholder="0.00" type="text" inputMode="decimal"
+                      style={{...inpSt,textAlign:"right",width:90,color:C.text}}
+                      onFocus={e=>e.target.style.background=`${C.green}12`}
+                      onBlur={e=>e.target.style.background="transparent"}
+                    />
+                  </td>
+                  {/* MEP promedio compra — green */}
+                  <td style={{...tdSt,textAlign:"right",background:`${C.green}06`}}>
+                    <input value={row.mepPromedioCompra} onChange={e=>updateRow(row.id,"mepPromedioCompra",e.target.value)}
+                      placeholder="0.00" type="text" inputMode="decimal"
+                      style={{...inpSt,textAlign:"right",width:90,color:C.text}}
+                      onFocus={e=>e.target.style.background=`${C.green}12`}
+                      onBlur={e=>e.target.style.background="transparent"}
+                    />
+                  </td>
+                  {/* Precio en USD — calculated */}
+                  <td style={{...tdSt,textAlign:"right",background:`${C.green}06`}}>
+                    <span style={{fontFamily:"'DM Mono',monospace",fontSize:12,color:C.textSub,fontStyle:"italic"}}>
+                      {precioCompraUSD !== null ? `USD ${fmt(precioCompraUSD, 2)}` : "—"}
+                    </span>
+                  </td>
+                  {/* Precio actual ARS — orange (update after buy). Fuente
+                      más grande y bold: es el campo que más se actualiza. */}
+                  <td style={{...tdSt,textAlign:"right",background:`${COLOR}06`}}>
+                    <input value={row.precioActualARS} onChange={e=>updateRow(row.id,"precioActualARS",e.target.value)}
+                      placeholder="0.00" type="text" inputMode="decimal"
+                      style={{...inpSt,textAlign:"right",width:90,color:C.text,fontSize:14,fontWeight:700}}
+                      onFocus={e=>e.target.style.background=`${COLOR}12`}
+                      onBlur={e=>e.target.style.background="transparent"}
+                    />
+                  </td>
+                  {/* Precio actual USD — calculated */}
+                  <td style={{...tdSt,textAlign:"right",background:`${COLOR}06`}}>
+                    <span style={{fontFamily:"'DM Mono',monospace",fontSize:12,color:C.textSub,fontStyle:"italic"}}>
+                      {precioActualUSD !== null ? `USD ${fmt(precioActualUSD, 2)}` : "—"}
+                    </span>
+                  </td>
+                  {/* P/L % ARS */}
+                  <td style={{...tdSt,textAlign:"right"}}>
+                    <PnLBadge val={plPctARS}/>
+                  </td>
+                  {/* P/L % USD */}
+                  <td style={{...tdSt,textAlign:"right"}}>
+                    <PnLBadge val={plPctUSD}/>
+                  </td>
+                  {/* Días de tenencia */}
+                  <td style={{...tdSt,textAlign:"right",fontFamily:"'DM Mono',monospace",color:C.textSub,fontSize:12}}>
+                    {diasTenencia !== null ? diasTenencia : "—"}
+                  </td>
+                  {/* Cerrar trade → histórico */}
+                  <td style={{...tdSt,textAlign:"center"}}>
+                    <button className="kinetic-btn" onClick={()=>closeToHistoric(row)} style={{
+                      background:"rgba(167,139,250,0.12)",border:"1px solid rgba(167,139,250,0.4)",
+                      color:"#a78bfa",cursor:"pointer",fontSize:11,fontWeight:600,
+                      padding:"4px 10px",borderRadius:7,
+                      fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap",
+                    }}
+                      onMouseEnter={e=>{e.currentTarget.style.background="rgba(167,139,250,0.25)";}}
+                      onMouseLeave={e=>{e.currentTarget.style.background="rgba(167,139,250,0.12)";}}
+                      title="Mover al histórico"
+                    >✓ Cerrar</button>
+                  </td>
+                  {/* Delete */}
+                  <td style={{...tdSt,textAlign:"center"}}>
+                    <button className="kinetic-btn-sm" onClick={()=>removeRow(row.id)} style={{
+                      background:"transparent",border:"none",color:C.textMuted,
+                      cursor:"pointer",fontSize:16,padding:"2px 6px",lineHeight:1,
+                      borderRadius:6,
+                    }}
+                      onMouseEnter={e=>{e.currentTarget.style.color=C.red;e.currentTarget.style.background=C.redBg;}}
+                      onMouseLeave={e=>{e.currentTarget.style.color=C.textMuted;e.currentTarget.style.background="transparent";}}
+                    >×</button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+
+// ── Trading: Histórico de Trades ─────────────────────────────────────────────
+function TradingHistoricTable() {
+  const COLOR = "#a78bfa";
+  const [rows, setRows] = React.useState(() => {
+    const saved = loadTrading("historic");
+    return saved.length ? saved : [];
+  });
+
+  // Reload whenever historic data might have changed (e.g. after closing a trade)
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      const saved = loadTrading("historic");
+      setRows(saved);
+    }, 500);
+    return () => clearInterval(interval);
+  }, []);
+
+  React.useEffect(() => { saveTrading("historic", rows); }, [rows]);
+
+  function updateRow(id, field, value) {
+    setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
+  }
+  function addRow() { setRows(prev => [emptyTradingHistoricRow(null), ...prev]); }
+  function removeRow(id) {
+    if (!window.confirm("¿Eliminar este registro del historial?")) return;
+    setRows(prev => prev.filter(r => r.id !== id));
+  }
+
+  function calcHistoric(row) {
+    const pCompraARS  = parseFloat(row.precioCompraARS)   || 0;
+    const mepCompra   = parseFloat(row.mepPromedioCompra) || 0;
+    const pCierreARS  = parseFloat(row.precioActualARS)   || 0;
+    const mepCierre   = parseFloat(row.mepCierre)         || 0;
+
+    const precioCompraUSD = mepCompra > 0 ? pCompraARS / mepCompra : null;
+    const precioCierreUSD = (pCierreARS > 0 && mepCierre > 0) ? pCierreARS / mepCierre : null;
+
+    const plPctARS = (pCompraARS > 0 && pCierreARS > 0)
+      ? ((pCierreARS - pCompraARS) / pCompraARS) * 100 : null;
+
+    const plPctUSD = (precioCompraUSD !== null && precioCierreUSD !== null && precioCompraUSD > 0)
+      ? ((precioCierreUSD - precioCompraUSD) / precioCompraUSD) * 100 : null;
+
+    // NOTE: "Días" is intentionally NOT computed here. It's a static value
+    // captured once at close time and stored on row.dias — see emptyTradingHistoricRow.
+    return { precioCompraUSD, precioCierreUSD, plPctARS, plPctUSD };
+  }
+
+  // Ordenamiento — display-only, no reordena lo guardado en localStorage
+  const [sortKey, setSortKey] = React.useState(null); // null | "fecha" | "plARS" | "plUSD"
+  const [sortDir, setSortDir] = React.useState("desc");
+  function toggleSort(key, defaultDir = "desc") {
+    if (sortKey === key) setSortDir(d => d === "desc" ? "asc" : "desc");
+    else { setSortKey(key); setSortDir(defaultDir); }
+  }
+  function parseFechaCompra(str) {
+    if (!str) return null;
+    const parts = str.split("/");
+    if (parts.length !== 3) return null;
+    const d = new Date(`${parts[2]}-${parts[1].padStart(2,"0")}-${parts[0].padStart(2,"0")}`);
+    return isNaN(d) ? null : d.getTime();
+  }
+  const displayRows = sortKey ? [...rows].sort((a, b) => {
+    let av, bv;
+    if (sortKey === "fecha") { av = parseFechaCompra(a.fechaCompra) ?? -Infinity; bv = parseFechaCompra(b.fechaCompra) ?? -Infinity; }
+    else if (sortKey === "plARS") { av = calcHistoric(a).plPctARS ?? -Infinity; bv = calcHistoric(b).plPctARS ?? -Infinity; }
+    else { av = calcHistoric(a).plPctUSD ?? -Infinity; bv = calcHistoric(b).plPctUSD ?? -Infinity; }
+    return sortDir === "desc" ? bv - av : av - bv;
+  }) : rows;
+
+  const inpSt = {
+    background: "transparent", border: "none", outline: "none",
+    color: C.text, fontFamily: "'DM Mono',monospace",
+    fontSize: 12, padding: "4px 6px", width: "100%",
+    borderRadius: 6, transition: "background 0.15s",
+  };
+  const thSt = {
+    color: C.textMuted, fontSize: 10, fontWeight: 500,
+    letterSpacing: "0.08em", textTransform: "uppercase",
+    padding: "10px 10px", textAlign: "left",
+    borderBottom: `1px solid ${C.border}`,
+    fontFamily: "'DM Mono',monospace", whiteSpace: "nowrap",
+    background: C.surface,
+  };
+  const tdSt = {
+    padding: "8px 10px", borderBottom: `1px solid ${C.border}`,
+    verticalAlign: "middle", fontSize: 12,
+  };
+
+  function PnLBadge({ val }) {
+    if (val === null) return <span style={{color:C.textMuted}}>—</span>;
+    return (
+      <span style={{
+        color: pnlColor(val), background: pnlBg(val),
+        fontFamily: "'DM Mono',monospace", fontWeight: 700, fontSize: 12,
+        padding: "2px 7px", borderRadius: 6,
+      }}>{val > 0 ? "+" : ""}{fmt(val, 2)}%</span>
+    );
+  }
+
+  return (
+    <div>
+      {/* Toolbar */}
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: "12px 20px", borderBottom: `1px solid ${C.border}`,
+        background: `${COLOR}0a`, flexWrap: "wrap", gap: 10,
+      }}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontSize:13,color:C.textMuted,fontFamily:"'DM Mono',monospace"}}>
+            {rows.length} operaciones cerradas
+          </span>
+          {rows.length > 0 && (() => {
+            // Wins/Losses se calculan sobre P/L % USD (no ARS) — mismo criterio en toda la app
+            const wins   = rows.filter(r => calcHistoric(r).plPctUSD > 0).length;
+            const losses = rows.filter(r => calcHistoric(r).plPctUSD < 0).length;
+            const wlPct  = (wins + losses) > 0 ? (wins / (wins + losses)) * 100 : null;
+            return (
+              <div style={{display:"flex",gap:8}}>
+                {wins   > 0 && <span key={`w${wins}`} className="kinetic-badge" style={{background:C.greenBg,color:C.green,fontFamily:"'DM Mono',monospace",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:99}}>✓ {wins} wins</span>}
+                {losses > 0 && <span key={`l${losses}`} className="kinetic-badge" style={{background:C.redBg,  color:C.red,  fontFamily:"'DM Mono',monospace",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:99}}>✗ {losses} losses</span>}
+                {wlPct !== null && (
+                  <span key={`wl${fmt(wlPct,0)}`} className="kinetic-badge" style={{
+                    background: wlPct >= 50 ? C.greenBg : C.redBg,
+                    color:      wlPct >= 50 ? C.green   : C.red,
+                    fontFamily:"'DM Mono',monospace",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:99,
+                  }}>W/L {fmt(wlPct,0)}%</span>
+                )}
+              </div>
+            );
+          })()}
+        </div>
+        <button className="kinetic-btn" onClick={addRow} style={{
+          background:`${COLOR}14`,border:`1px solid ${COLOR}44`,
+          color:COLOR,fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:600,
+          padding:"7px 16px",cursor:"pointer",borderRadius:9,
+        }}
+          onMouseEnter={e=>e.currentTarget.style.background=`${COLOR}28`}
+          onMouseLeave={e=>e.currentTarget.style.background=`${COLOR}14`}
+        >+ Agregar manual</button>
+      </div>
+
+      {/* Empty state */}
+      {rows.length === 0 && (
+        <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:200,gap:10,color:C.textMuted,padding:40}}>
+          <div style={{fontSize:40}}>🗂</div>
+          <div style={{fontFamily:"'Nunito',sans-serif",fontSize:16,fontWeight:700,color:C.text}}>Sin operaciones cerradas</div>
+          <div style={{fontSize:12,color:C.textMuted,textAlign:"center",lineHeight:1.6}}>
+            Usá el botón <strong style={{color:"#a78bfa"}}>✓ Cerrar</strong> en Operaciones Activas para mover trades aquí.
+          </div>
+        </div>
+      )}
+
+      {/* Table */}
+      {rows.length > 0 && (
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",minWidth:1100}}>
+            <thead>
+              <tr>
+                <th style={{...thSt,width:80}}>Activo</th>
+                <th style={{...thSt,width:70,textAlign:"right"}}>Cant.</th>
+                <th style={{...thSt,width:110}}>
+                  <span style={{display:"inline-flex",alignItems:"center",gap:2}}>
+                    F. Compra
+                    <SortButton active={sortKey==="fecha"} dir={sortDir} onClick={()=>toggleSort("fecha","desc")}/>
+                  </span>
+                </th>
+                <th style={{...thSt,width:120,textAlign:"right",color:C.green}}>P. Compra ARS</th>
+                <th style={{...thSt,width:120,textAlign:"right",color:C.green}}>MEP Prom. Compra</th>
+                <th style={{...thSt,width:110,textAlign:"right",color:C.green}}>P. en USD</th>
+                <th style={{...thSt,width:120,textAlign:"right",color:COLOR}}>P. Cierre ARS</th>
+                <th style={{...thSt,width:110,textAlign:"right",color:COLOR}}>MEP Cierre</th>
+                <th style={{...thSt,width:110,textAlign:"right",color:COLOR}}>P. Cierre USD</th>
+                <th style={{...thSt,width:110}}>F. Cierre</th>
+                <th style={{...thSt,width:90,textAlign:"right"}}>
+                  <span style={{display:"inline-flex",alignItems:"center",justifyContent:"flex-end",gap:2}}>
+                    P/L % ARS
+                    <SortButton active={sortKey==="plARS"} dir={sortDir} onClick={()=>toggleSort("plARS","desc")}/>
+                  </span>
+                </th>
+                <th style={{...thSt,width:90,textAlign:"right"}}>
+                  <span style={{display:"inline-flex",alignItems:"center",justifyContent:"flex-end",gap:2}}>
+                    P/L % USD
+                    <SortButton active={sortKey==="plUSD"} dir={sortDir} onClick={()=>toggleSort("plUSD","desc")}/>
+                  </span>
+                </th>
+                <th style={{...thSt,width:80,textAlign:"right"}}>Días</th>
+                <th style={{...thSt,width:40}}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {displayRows.map(row => {
+                const { precioCompraUSD, precioCierreUSD, plPctARS, plPctUSD } = calcHistoric(row);
+                return (
+                  <tr key={row.id}
+                    onMouseEnter={e=>e.currentTarget.style.background=C.cardHover}
+                    onMouseLeave={e=>e.currentTarget.style.background="transparent"}
+                    style={{transition:"background 0.12s"}}
+                  >
+                    <td style={tdSt}>
+                      <input value={row.activo||""} onChange={e=>updateRow(row.id,"activo",e.target.value.toUpperCase())}
+                        placeholder="—" style={{...inpSt,fontWeight:700,color:COLOR,letterSpacing:"0.05em",width:68}}
+                        onFocus={e=>e.target.style.background=`${COLOR}12`}
+                        onBlur={e=>e.target.style.background="transparent"}
+                      />
+                    </td>
+                    <td style={{...tdSt,textAlign:"right"}}>
+                      <input value={row.cant||""} onChange={e=>updateRow(row.id,"cant",e.target.value)}
+                        placeholder="0" type="text" inputMode="decimal"
+                        style={{...inpSt,textAlign:"right",width:60}}
+                        onFocus={e=>e.target.style.background=C.surface}
+                        onBlur={e=>e.target.style.background="transparent"}
+                      />
+                    </td>
+                    <td style={tdSt}>
+                      <input value={row.fechaCompra||""} onChange={e=>updateRow(row.id,"fechaCompra",e.target.value)}
+                        placeholder="dd/mm/aa" style={{...inpSt,width:90}}
+                        onFocus={e=>e.target.style.background=C.surface}
+                        onBlur={e=>e.target.style.background="transparent"}
+                      />
+                    </td>
+                    <td style={{...tdSt,textAlign:"right",background:`${C.green}06`}}>
+                      <input value={row.precioCompraARS||""} onChange={e=>updateRow(row.id,"precioCompraARS",e.target.value)}
+                        placeholder="0.00" type="text" inputMode="decimal"
+                        style={{...inpSt,textAlign:"right",width:90}}
+                        onFocus={e=>e.target.style.background=`${C.green}12`}
+                        onBlur={e=>e.target.style.background="transparent"}
+                      />
+                    </td>
+                    <td style={{...tdSt,textAlign:"right",background:`${C.green}06`}}>
+                      <input value={row.mepPromedioCompra||""} onChange={e=>updateRow(row.id,"mepPromedioCompra",e.target.value)}
+                        placeholder="0.00" type="text" inputMode="decimal"
+                        style={{...inpSt,textAlign:"right",width:90}}
+                        onFocus={e=>e.target.style.background=`${C.green}12`}
+                        onBlur={e=>e.target.style.background="transparent"}
+                      />
+                    </td>
+                    <td style={{...tdSt,textAlign:"right",background:`${C.green}06`}}>
+                      <span style={{fontFamily:"'DM Mono',monospace",fontSize:12,color:C.textSub,fontStyle:"italic"}}>
+                        {precioCompraUSD !== null ? `USD ${fmt(precioCompraUSD,2)}` : "—"}
+                      </span>
+                    </td>
+                    {/* Precio Actual — fuente más grande y bold: es el campo
+                        que más se actualiza, igual que en Operaciones Activas. */}
+                    <td style={{...tdSt,textAlign:"right",background:`${COLOR}06`}}>
+                      <input value={row.precioActualARS||""} onChange={e=>updateRow(row.id,"precioActualARS",e.target.value)}
+                        placeholder="0.00" type="text" inputMode="decimal"
+                        style={{...inpSt,textAlign:"right",width:90,fontSize:14,fontWeight:700}}
+                        onFocus={e=>e.target.style.background=`${COLOR}12`}
+                        onBlur={e=>e.target.style.background="transparent"}
+                      />
+                    </td>
+                    {/* MEP Cierre — captured from MEP Hoy at close time, editable for manual rows */}
+                    <td style={{...tdSt,textAlign:"right",background:`${COLOR}06`}}>
+                      <input value={row.mepCierre||""} onChange={e=>updateRow(row.id,"mepCierre",e.target.value)}
+                        placeholder="0.00" type="text" inputMode="decimal"
+                        style={{...inpSt,textAlign:"right",width:90}}
+                        onFocus={e=>e.target.style.background=`${COLOR}12`}
+                        onBlur={e=>e.target.style.background="transparent"}
+                      />
+                    </td>
+                    {/* P. Cierre USD — calculated from P. Cierre ARS ÷ MEP Cierre */}
+                    <td style={{...tdSt,textAlign:"right",background:`${COLOR}06`}}>
+                      <span style={{fontFamily:"'DM Mono',monospace",fontSize:12,color:C.textSub,fontStyle:"italic"}}>
+                        {precioCierreUSD !== null ? `USD ${fmt(precioCierreUSD,2)}` : "—"}
+                      </span>
+                    </td>
+                    <td style={tdSt}>
+                      <input value={row.fechaCierre||""} onChange={e=>updateRow(row.id,"fechaCierre",e.target.value)}
+                        placeholder="dd/mm/aa" style={{...inpSt,width:90}}
+                        onFocus={e=>e.target.style.background=C.surface}
+                        onBlur={e=>e.target.style.background="transparent"}
+                      />
+                    </td>
+                    <td style={{...tdSt,textAlign:"right"}}>
+                      <PnLBadge val={plPctARS}/>
+                    </td>
+                    <td style={{...tdSt,textAlign:"right"}}>
+                      <PnLBadge val={plPctUSD}/>
+                    </td>
+                    {/* Días — static reference value captured once when the trade was closed.
+                        Editable so it can be corrected manually, but never auto-recalculated. */}
+                    <td style={{...tdSt,textAlign:"right",background:`${COLOR}06`}}>
+                      <input value={row.dias??""} onChange={e=>updateRow(row.id,"dias",e.target.value)}
+                        placeholder="—" type="text" inputMode="numeric"
+                        style={{...inpSt,textAlign:"right",width:56,fontFamily:"'DM Mono',monospace",color:C.textSub}}
+                        onFocus={e=>e.target.style.background=`${COLOR}12`}
+                        onBlur={e=>e.target.style.background="transparent"}
+                      />
+                    </td>
+                    <td style={{...tdSt,textAlign:"center"}}>
+                      <button className="kinetic-btn-sm" onClick={()=>removeRow(row.id)} style={{
+                        background:"transparent",border:"none",color:C.textMuted,
+                        cursor:"pointer",fontSize:16,padding:"2px 6px",lineHeight:1,
+                        borderRadius:6,
+                      }}
+                        onMouseEnter={e=>{e.currentTarget.style.color=C.red;e.currentTarget.style.background=C.redBg;}}
+                        onMouseLeave={e=>{e.currentTarget.style.color=C.textMuted;e.currentTarget.style.background="transparent";}}
+                      >×</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Trading Tab ───────────────────────────────────────────────────────────────
+// Four sections: Portfolio · Active Trades · Historic Trades · Merval
+// Storage keys:
+//   "trading:portfolio"     → current holdings
+//   "trading:active"        → open/active trades
+//   "trading:historic"      → closed operations
+//   "trading:merval"        → acciones argentinas (Homebroker)
+
+const MERVAL_COLOR = "#38bdf8"; // mismo celeste que usa "Merval" en toda la app
+
+function emptyMervalRow() {
+  return {
+    id: `mv${Date.now()}${Math.floor(Math.random()*1000)}`,
+    ticker: "", fecha: "", cantidad: "", precioCompra: "", ppcActual: "",
+    status: "Open", // "Open" | "Closed" — decisión manual del usuario
+  };
+}
+
+// Total PPC (compra) y Precio Actual (cierre) son ambos Cantidad × precio unitario.
+// Dif. $ = Precio Actual − Total PPC (ambos ya en la misma unidad: valor total de la posición)
+function calcMervalRow(row) {
+  const cant = parseFloat(row.cantidad) || 0;
+  const pCompra = parseFloat(row.precioCompra) || 0;
+  const ppcActual = parseFloat(row.ppcActual) || 0;
+  if (!cant || !pCompra) return { totalPPC: null, precioActualTotal: null, difMonto: null, difPct: null, resultado: null };
+  const totalPPC = cant * pCompra;
+  const precioActualTotal = ppcActual ? cant * ppcActual : null;
+  const difMonto = precioActualTotal !== null ? precioActualTotal - totalPPC : null;
+  const difPct = (difMonto !== null && totalPPC > 0) ? (difMonto / totalPPC) * 100 : null;
+  const resultado = difMonto === null ? null : difMonto > 0 ? "Win" : difMonto < 0 ? "Loss" : null;
+  return { totalPPC, precioActualTotal, difMonto, difPct, resultado };
+}
+
+function MervalTradingTable() {
+  const [rows, setRows] = React.useState(() => {
+    const saved = loadTrading("merval");
+    return saved.length ? saved : [emptyMervalRow()];
+  });
+
+  React.useEffect(() => { saveTrading("merval", rows); }, [rows]);
+
+  function updateRow(id, field, value) {
+    setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
+  }
+  function addRow() { setRows(prev => [...prev, emptyMervalRow()]); }
+  function removeRow(id) { setRows(prev => prev.filter(r => r.id !== id)); }
+
+  // Ordenamiento — display-only, no reordena lo guardado en localStorage
+  const [sortKey, setSortKey] = React.useState(null); // null | "fecha" | "precioActual" | "dif" | "status"
+  const [sortDir, setSortDir] = React.useState("desc");
+
+  function toggleSort(key, defaultDir = "desc") {
+    if (sortKey === key) setSortDir(d => d === "desc" ? "asc" : "desc");
+    else { setSortKey(key); setSortDir(defaultDir); }
+  }
+
+  const displayRows = sortKey ? [...rows].sort((a, b) => {
+    if (sortKey === "fecha" || sortKey === "status") {
+      const av = (a[sortKey] || "").toLowerCase();
+      const bv = (b[sortKey] || "").toLowerCase();
+      if (av < bv) return sortDir === "asc" ? -1 : 1;
+      if (av > bv) return sortDir === "asc" ? 1 : -1;
+      return 0;
+    }
+    // numérico: "precioActual" (Precio Actual) | "dif" (Dif. $)
+    const av = sortKey === "precioActual" ? (calcMervalRow(a).precioActualTotal ?? -Infinity) : (calcMervalRow(a).difMonto ?? -Infinity);
+    const bv = sortKey === "precioActual" ? (calcMervalRow(b).precioActualTotal ?? -Infinity) : (calcMervalRow(b).difMonto ?? -Infinity);
+    return sortDir === "desc" ? bv - av : av - bv;
+  }) : rows;
+
+  const inpSt = {
+    background: "transparent", border: "none", outline: "none",
+    color: C.text, fontFamily: "'DM Mono',monospace",
+    fontSize: 12, padding: "4px 6px", width: "100%",
+    borderRadius: 6, transition: "background 0.15s",
+  };
+  const thSt = {
+    color: C.textMuted, fontSize: 10, fontWeight: 500,
+    letterSpacing: "0.1em", textTransform: "uppercase",
+    padding: "10px 12px", textAlign: "left",
+    borderBottom: `1px solid ${C.border}`,
+    fontFamily: "'DM Mono',monospace", whiteSpace: "nowrap",
+    background: C.surface,
+  };
+  const tdSt = {
+    padding: "8px 12px", borderBottom: `1px solid ${C.border}`,
+    verticalAlign: "middle", fontSize: 13,
+  };
+
+  // ── Estadísticas del header (W/L y Open/Close) ──────────────────────────────
+  const withResult = rows.map(r => ({ row: r, ...calcMervalRow(r) }));
+  const wins   = withResult.filter(r => r.resultado === "Win").length;
+  const losses = withResult.filter(r => r.resultado === "Loss").length;
+  const wlPct  = (wins + losses) > 0 ? (wins / (wins + losses)) * 100 : null;
+  const opens  = rows.filter(r => r.status === "Open" && r.ticker).length;
+  const closeds= rows.filter(r => r.status === "Closed" && r.ticker).length;
+  const opsAbPct = (opens + closeds) > 0 ? (opens / (opens + closeds)) * 100 : null;
+
+  const totalDif = withResult.reduce((s, r) => s + (r.difMonto || 0), 0);
+  const hasAnyData = rows.some(r => r.ticker);
+
+  const today = new Date().toLocaleDateString("es-AR");
+
+  return (
+    <div>
+      {/* Header stats bar — Fecha hoy · W/L · Open/Close */}
+      <div style={{ display: "flex", alignItems: "center", gap: 24, padding: "14px 20px", borderBottom: `1px solid ${C.border}`, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 3 }}>Fecha hoy</div>
+          <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 13, color: C.text, fontWeight: 600 }}>{today}</div>
+        </div>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <StatPill label="W" value={wins} color={C.green} />
+          <StatPill label="L" value={losses} color={C.red} />
+          <StatPill label="W/L %" value={wlPct !== null ? `${fmt(wlPct, 0)}%` : "—"} color={wlPct !== null && wlPct >= 50 ? C.green : C.red} filled />
+        </div>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <StatPill label="Open" value={opens} color={C.green} />
+          <StatPill label="Close" value={closeds} color={C.textSub} />
+          <StatPill label="Ops. Ab. %" value={opsAbPct !== null ? `${fmt(opsAbPct, 0)}%` : "—"} color={C.red} filled />
+        </div>
+      </div>
+
+      {/* Toolbar */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 20px", borderBottom: `1px solid ${C.border}`, flexWrap: "wrap", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {rows.filter(r => r.ticker).length > 0 && (
+            <span key={rows.filter(r => r.ticker).length} className="kinetic-badge" style={{
+              background: `${MERVAL_COLOR}18`, color: MERVAL_COLOR,
+              fontFamily: "'DM Mono',monospace", fontSize: 10, fontWeight: 600,
+              padding: "2px 8px", borderRadius: 99,
+            }}>{rows.filter(r => r.ticker).length} operaciones</span>
+          )}
+        </div>
+        <button className="kinetic-btn" onClick={addRow} style={{
+          background: `${MERVAL_COLOR}14`, border: `1px solid ${MERVAL_COLOR}44`,
+          color: MERVAL_COLOR, fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 600,
+          padding: "7px 16px", cursor: "pointer", borderRadius: 9,
+        }}
+          onMouseEnter={e => e.currentTarget.style.background = `${MERVAL_COLOR}28`}
+          onMouseLeave={e => e.currentTarget.style.background = `${MERVAL_COLOR}14`}
+        >+ Agregar fila</button>
+      </div>
+
+      {/* Table */}
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 980 }}>
+          <thead>
+            <tr>
+              <th style={{ ...thSt, width: 90 }}>Ticker</th>
+              <th style={{ ...thSt, width: 90 }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
+                  Fecha
+                  <SortButton active={sortKey==="fecha"} dir={sortDir} onClick={()=>toggleSort("fecha","asc")}/>
+                </span>
+              </th>
+              <th style={{ ...thSt, width: 90, textAlign: "right" }}>Cantidad</th>
+              <th style={{ ...thSt, width: 110, textAlign: "right" }}>$ Compra/PPC</th>
+              <th style={{ ...thSt, width: 120, textAlign: "right" }}>Total PPC</th>
+              <th style={{ ...thSt, width: 110, textAlign: "right", fontWeight: 800 }}>PPC Actual</th>
+              <th style={{ ...thSt, width: 120, textAlign: "right" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "flex-end", gap: 2 }}>
+                  Precio Actual
+                  <SortButton active={sortKey==="precioActual"} dir={sortDir} onClick={()=>toggleSort("precioActual","desc")}/>
+                </span>
+              </th>
+              <th style={{ ...thSt, width: 120, textAlign: "right" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "flex-end", gap: 2 }}>
+                  Dif. $
+                  <SortButton active={sortKey==="dif"} dir={sortDir} onClick={()=>toggleSort("dif","desc")}/>
+                </span>
+              </th>
+              <th style={{ ...thSt, width: 80, textAlign: "right" }}>%</th>
+              <th style={{ ...thSt, width: 90, textAlign: "center" }}>W/L</th>
+              <th style={{ ...thSt, width: 100, textAlign: "center" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 2 }}>
+                  Status
+                  <SortButton active={sortKey==="status"} dir={sortDir} onClick={()=>toggleSort("status","asc")}/>
+                </span>
+              </th>
+              <th style={{ ...thSt, width: 40 }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 && (
+              <tr><td colSpan={12} style={{ ...tdSt, textAlign: "center", color: C.textMuted, padding: 36 }}>
+                Sin operaciones · Hacé clic en "+ Agregar fila"
+              </td></tr>
+            )}
+            {displayRows.map(row => {
+              const { totalPPC, precioActualTotal, difMonto, difPct, resultado } = calcMervalRow(row);
+              return (
+                <tr key={row.id}
+                  onMouseEnter={e => e.currentTarget.style.background = C.cardHover}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                  style={{ transition: "background 0.12s" }}
+                >
+                  <td style={tdSt}>
+                    <input value={row.ticker} onChange={e => updateRow(row.id, "ticker", e.target.value.toUpperCase())}
+                      placeholder="—" style={{ ...inpSt, fontWeight: 700, color: MERVAL_COLOR, letterSpacing: "0.05em", width: 68 }}
+                      onFocus={e => e.target.style.background = `${MERVAL_COLOR}12`}
+                      onBlur={e => e.target.style.background = "transparent"}
+                    />
+                  </td>
+                  <td style={tdSt}>
+                    <input value={row.fecha} onChange={e => updateRow(row.id, "fecha", e.target.value)}
+                      placeholder="dd/mm" style={{ ...inpSt, width: 70 }}
+                      onFocus={e => e.target.style.background = C.surface}
+                      onBlur={e => e.target.style.background = "transparent"}
+                    />
+                  </td>
+                  <td style={{ ...tdSt, textAlign: "right" }}>
+                    <input value={row.cantidad} onChange={e => updateRow(row.id, "cantidad", e.target.value)}
+                      placeholder="0" type="text" inputMode="decimal" style={{ ...inpSt, textAlign: "right", width: 70 }}
+                      onFocus={e => e.target.style.background = C.surface}
+                      onBlur={e => e.target.style.background = "transparent"}
+                    />
+                  </td>
+                  <td style={{ ...tdSt, textAlign: "right" }}>
+                    <input value={row.precioCompra} onChange={e => updateRow(row.id, "precioCompra", e.target.value)}
+                      placeholder="0.00" type="text" inputMode="decimal" style={{ ...inpSt, textAlign: "right", width: 90 }}
+                      onFocus={e => e.target.style.background = C.surface}
+                      onBlur={e => e.target.style.background = "transparent"}
+                    />
+                  </td>
+                  <td style={{ ...tdSt, textAlign: "right", background: `${MERVAL_COLOR}06` }}>
+                    <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 12, color: C.textSub, fontStyle: "italic" }}>
+                      {totalPPC !== null ? fmt(totalPPC) : "—"}
+                    </span>
+                  </td>
+                  <td style={{ ...tdSt, textAlign: "right" }}>
+                    <input value={row.ppcActual} onChange={e => updateRow(row.id, "ppcActual", e.target.value)}
+                      placeholder="0.00" type="text" inputMode="decimal" style={{ ...inpSt, textAlign: "right", width: 90 }}
+                      onFocus={e => e.target.style.background = C.surface}
+                      onBlur={e => e.target.style.background = "transparent"}
+                    />
+                  </td>
+                  <td style={{ ...tdSt, textAlign: "right", background: `${MERVAL_COLOR}06` }}>
+                    <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 12, color: C.textSub, fontStyle: "italic" }}>
+                      {precioActualTotal !== null ? fmt(precioActualTotal) : "—"}
+                    </span>
+                  </td>
+                  <td style={{ ...tdSt, textAlign: "right" }}>
+                    {difMonto !== null
+                      ? <span style={{ color: pnlColor(difMonto), fontWeight: 600, fontFamily: "'DM Mono',monospace", fontSize: 12 }}>{difMonto > 0 ? "+" : ""}{fmt(difMonto)}</span>
+                      : <span style={{ color: C.textMuted }}>—</span>}
+                  </td>
+                  <td style={{ ...tdSt, textAlign: "right" }}>
+                    {difPct !== null
+                      ? <span style={{ color: pnlColor(difPct), fontWeight: 600, fontFamily: "'DM Mono',monospace", fontSize: 12 }}>{difPct > 0 ? "+" : ""}{fmt(difPct, 2)}%</span>
+                      : <span style={{ color: C.textMuted }}>—</span>}
+                  </td>
+                  <td style={{ ...tdSt, textAlign: "center" }}>
+                    {resultado ? <Badge color={resultado === "Win" ? C.green : C.red}>{resultado}</Badge> : <span style={{ color: C.textMuted }}>—</span>}
+                  </td>
+                  <td style={{ ...tdSt, textAlign: "center" }}>
+                    <select value={row.status} onChange={e => updateRow(row.id, "status", e.target.value)}
+                      style={{
+                        ...inpSt, textAlign: "center", cursor: "pointer", appearance: "none", WebkitAppearance: "none",
+                        color: row.status === "Open" ? "#60a5fa" : C.textMuted, fontWeight: 600,
+                      }}
+                      onFocus={e => e.target.style.background = `${MERVAL_COLOR}12`}
+                      onBlur={e => e.target.style.background = "transparent"}
+                    >
+                      <option value="Open">Open</option>
+                      <option value="Closed">Closed</option>
+                    </select>
+                  </td>
+                  <td style={{ ...tdSt, textAlign: "center" }}>
+                    <button className="kinetic-btn-sm" onClick={() => removeRow(row.id)} style={{
+                      background: "transparent", border: "none", color: C.textMuted, cursor: "pointer",
+                      fontSize: 16, padding: "2px 6px", lineHeight: 1, borderRadius: 6,
+                    }}
+                      onMouseEnter={e => { e.currentTarget.style.color = C.red; e.currentTarget.style.background = C.redBg; }}
+                      onMouseLeave={e => { e.currentTarget.style.color = C.textMuted; e.currentTarget.style.background = "transparent"; }}
+                    >×</button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+          {/* Totals footer */}
+          {hasAnyData && (
+            <tfoot>
+              <tr style={{ background: `${MERVAL_COLOR}0c` }}>
+                <td colSpan={7} style={{ padding: "10px 12px", borderTop: `2px solid ${MERVAL_COLOR}40`, fontFamily: "'DM Sans',sans-serif", fontWeight: 700, fontSize: 12, color: MERVAL_COLOR }}>
+                  Total
+                </td>
+                <td style={{ padding: "10px 12px", borderTop: `2px solid ${MERVAL_COLOR}40`, textAlign: "right", fontFamily: "'DM Mono',monospace", fontSize: 12, fontWeight: 700, color: pnlColor(totalDif) }}>
+                  {totalDif > 0 ? "+" : ""}{fmt(totalDif)}
+                </td>
+                <td colSpan={4} style={{ borderTop: `2px solid ${MERVAL_COLOR}40` }} />
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// Small stat pill for the Merval header bar (W/L, Open/Close counts)
+function StatPill({ label, value, color, filled }) {
+  return (
+    <div style={{
+      display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
+      padding: filled ? "6px 14px" : "4px 10px",
+      background: filled ? `${color}20` : "transparent",
+      border: `1px solid ${filled ? color + "50" : C.border}`,
+      borderRadius: 8, minWidth: 52,
+    }}>
+      <span style={{ fontSize: 9, color: C.textMuted, textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</span>
+      <span style={{ fontFamily: "'DM Mono',monospace", fontSize: 13, fontWeight: 700, color }}>{value}</span>
+    </div>
+  );
+}
+
+const TRADING_ACCENT = "#06b6d4"; // cyan
+
+// ── Watchlist — 5 columnas de texto libre, sin cálculos, sin cargo de datos ──
+// Cada fila es independiente por columna (no hay relación entre "Monitor",
+// "Buy", "Comment", "Preferred" y "QQQ Top Holdings" en una misma fila — son
+// 5 listas paralelas, tal como en la captura de referencia).
+const WATCHLIST_COLOR = "#f472b6";
+
+function emptyWatchlistRow() {
+  return { id: `wl${Date.now()}${Math.floor(Math.random()*1000)}`, monitor: "", buy: "", comment: "", preferred: "", qqq: "" };
+}
+
+function WatchlistTable() {
+  const [rows, setRows] = React.useState(() => {
+    const saved = loadTrading("watchlist");
+    return saved.length ? saved : Array.from({ length: 6 }, emptyWatchlistRow);
+  });
+
+  React.useEffect(() => { saveTrading("watchlist", rows); }, [rows]);
+
+  function updateRow(id, field, value) {
+    setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
+  }
+  function addRow() { setRows(prev => [...prev, emptyWatchlistRow()]); }
+  function removeRow(id) { setRows(prev => prev.filter(r => r.id !== id)); }
+
+  const inpSt = {
+    background: "transparent", border: "none", outline: "none",
+    color: C.text, fontFamily: "'DM Mono',monospace",
+    fontSize: 12, padding: "4px 6px", width: "100%",
+    borderRadius: 6, transition: "background 0.15s", textAlign: "center",
+  };
+  const thSt = {
+    color: C.textMuted, fontSize: 10, fontWeight: 500,
+    letterSpacing: "0.1em", textTransform: "uppercase",
+    padding: "10px 12px", textAlign: "center",
+    borderBottom: `1px solid ${C.border}`,
+    fontFamily: "'DM Mono',monospace", whiteSpace: "nowrap",
+    background: C.surface,
+  };
+  const tdSt = {
+    padding: "8px 12px", borderBottom: `1px solid ${C.border}`,
+    verticalAlign: "middle", fontSize: 13,
+  };
+
+  const COLUMNS = [
+    { field: "monitor",   label: "Monitor" },
+    { field: "buy",       label: "Buy" },
+    { field: "comment",   label: "Comment" },
+    { field: "preferred", label: "Preferred" },
+    { field: "qqq",       label: "QQQ Top Holdings" },
+  ];
+
+  return (
+    <div>
+      {/* Toolbar */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 20px", borderBottom: `1px solid ${C.border}` }}>
+        <span style={{ fontSize: 11, color: C.textMuted }}>Campos de texto libre — sin cálculos, solo referencia manual</span>
+        <button className="kinetic-btn" onClick={addRow} style={{
+          background: `${WATCHLIST_COLOR}14`, border: `1px solid ${WATCHLIST_COLOR}44`,
+          color: WATCHLIST_COLOR, fontFamily: "'DM Sans',sans-serif", fontSize: 12, fontWeight: 600,
+          padding: "7px 16px", cursor: "pointer", borderRadius: 9,
+        }}
+          onMouseEnter={e => e.currentTarget.style.background = `${WATCHLIST_COLOR}28`}
+          onMouseLeave={e => e.currentTarget.style.background = `${WATCHLIST_COLOR}14`}
+        >+ Agregar fila</button>
+      </div>
+
+      {/* Table */}
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 780 }}>
+          <thead>
+            <tr>
+              {COLUMNS.map(c => (
+                <th key={c.field} style={{ ...thSt, width: c.field === "comment" ? 220 : 140 }}>{c.label}</th>
+              ))}
+              <th style={{ ...thSt, width: 40 }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 && (
+              <tr><td colSpan={6} style={{ ...tdSt, textAlign: "center", color: C.textMuted, padding: 36 }}>
+                Sin filas · Hacé clic en "+ Agregar fila"
+              </td></tr>
+            )}
+            {rows.map(row => (
+              <tr key={row.id}
+                onMouseEnter={e => e.currentTarget.style.background = C.cardHover}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                style={{ transition: "background 0.12s" }}
+              >
+                {COLUMNS.map(c => (
+                  <td key={c.field} style={tdSt}>
+                    <input value={row[c.field]} onChange={e => updateRow(row.id, c.field, e.target.value)}
+                      placeholder="—" style={inpSt}
+                      onFocus={e => e.target.style.background = `${WATCHLIST_COLOR}12`}
+                      onBlur={e => e.target.style.background = "transparent"}
+                    />
+                  </td>
+                ))}
+                <td style={{ ...tdSt, textAlign: "center" }}>
+                  <button className="kinetic-btn-sm" onClick={() => removeRow(row.id)} style={{
+                    background: "transparent", border: "none", color: C.textMuted, cursor: "pointer",
+                    fontSize: 16, padding: "2px 6px", lineHeight: 1, borderRadius: 6,
+                  }}
+                    onMouseEnter={e => { e.currentTarget.style.color = C.red; e.currentTarget.style.background = C.redBg; }}
+                    onMouseLeave={e => { e.currentTarget.style.color = C.textMuted; e.currentTarget.style.background = "transparent"; }}
+                  >×</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+const TRADING_SECTIONS = [
+  { key: "portfolio",  label: "Portafolio Actual",    icon: "📋", color: "#06b6d4" },
+  { key: "active",     label: "Operaciones Activas",  icon: "⚡", color: "#f59e0b" },
+  { key: "watchlist",  label: "Watchlist",             icon: "👁️", color: "#f472b6" },
+  { key: "historic",   label: "Histórico de Trades",  icon: "🗂",  color: "#a78bfa" },
+  { key: "merval",     label: "Merval",               icon: "📈", color: "#38bdf8" },
+];
+
+const TRADING_SUBTITLES = {
+  portfolio: "Posiciones actuales · holdings vigentes",
+  watchlist: "Seguimiento manual · research antes de operar",
+  active:    "Operaciones abiertas · trades en curso",
+  historic:  "Operaciones cerradas · historial completo",
+  merval:    "Acciones argentinas · Homebroker",
+};
+
+const TRADING_BODIES = {
+  portfolio: TradingPortfolioTable,
+  watchlist: WatchlistTable,
+  active:    TradingActiveTable,
+  historic:  TradingHistoricTable,
+  merval:    MervalTradingTable,
+};
+
+function TradingView() {
+  // All three sections render stacked and always visible — no more exclusive tabs.
+  const sectionRefs = React.useRef({});
+
+  function scrollToSection(key) {
+    sectionRefs.current[key]?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  return (
+    <div style={{ padding: "28px 28px 52px", maxWidth: 1380, margin: "0 auto" }}>
+
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h2 style={{ fontFamily: "'Nunito',sans-serif", fontSize: 22, fontWeight: 800, color: C.text, margin: 0, lineHeight: 1 }}>
+            Trading <span style={{ color: TRADING_ACCENT }}>Desk</span>
+          </h2>
+          <p style={{ fontSize: 12, color: C.textMuted, margin: "4px 0 0", fontFamily: "'DM Mono',monospace" }}>
+            Portafolio · Operaciones activas · Historial
+          </p>
+        </div>
+      </div>
+
+      {/* Quick-jump nav — scrolls to each section, all of which stay visible below */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 24, flexWrap: "wrap" }}>
+        {TRADING_SECTIONS.map(s => (
+          <button className="kinetic-btn" key={s.key} onClick={() => scrollToSection(s.key)} style={{
+            display: "flex", alignItems: "center", gap: 8,
+            padding: "10px 20px",
+            background: C.card,
+            border: `1px solid ${C.border}`,
+            borderRadius: 10, cursor: "pointer",
+            fontFamily: "'DM Sans',sans-serif", fontSize: 13, fontWeight: 400,
+            color: C.textMuted,
+
+          }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = s.color + "60"; e.currentTarget.style.color = s.color; e.currentTarget.style.background = `${s.color}18`; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.textMuted; e.currentTarget.style.background = C.card; }}
+          >
+            <span style={{ fontSize: 16 }}>{s.icon}</span>
+            {s.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Sections — always visible, stacked one below the other, in order */}
+      {TRADING_SECTIONS.map((s, i) => {
+        const Body = TRADING_BODIES[s.key];
+        return (
+          <div
+            key={s.key}
+            ref={el => { sectionRefs.current[s.key] = el; }}
+            style={{ scrollMarginTop: 20, marginBottom: i < TRADING_SECTIONS.length - 1 ? 32 : 0 }}
+          >
+            <div style={{
+              background: C.card, border: `1px solid ${s.color}28`,
+              borderRadius: 16, overflow: "hidden",
+            }}>
+              {/* Section header */}
+              <div style={{
+                padding: "16px 22px",
+                background: `linear-gradient(90deg, ${s.color}12, transparent)`,
+                borderBottom: `1px solid ${C.border}`,
+                display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <span style={{ fontSize: 20 }}>{s.icon}</span>
+                  <div>
+                    <div style={{ fontFamily: "'Nunito',sans-serif", fontSize: 17, fontWeight: 700, color: C.text, lineHeight: 1.1 }}>
+                      {s.label}
+                    </div>
+                    <div style={{ color: C.textMuted, fontSize: 11, marginTop: 2 }}>
+                      {TRADING_SUBTITLES[s.key]}
+                    </div>
+                  </div>
+                </div>
+                {/* Notas — mismo componente de comentarios que usan CEDEARs/Merval/Crypto */}
+                {(s.key === "portfolio" || s.key === "active") && (
+                  <CommentBubble
+                    sectionKey={s.key === "portfolio" ? "trading-portfolio" : "trading-active"}
+                    color={s.color}
+                  />
+                )}
+              </div>
+
+              {/* Section body */}
+              <Body />
+            </div>
+          </div>
+        );
+      })}
+
+    </div>
+  );
+}
+
+// ── App ──────────────────────────────────────────────────────────────────────
+export default function PortfolioTracker(){
+  const now=new Date();
+  const [year,setYear]=useState(now.getFullYear());
+  const [month,setMonth]=useState(now.getMonth());
+  const [showCompare,setShowCompare]=useState(false);
+  const [saving,setSaving]=useState(false);
+  const [savedMsg,setSavedMsg]=useState("");
+  const [lastSaved,setLastSaved]=useState(()=>getLastSaved());
+  const [data,setData]=useState({cedears:[emptyRow()],pesos:[emptyRow()],crypto:[emptyRow()]});
+  const [prevData,setPrevData]=useState(null);
+  const [fxRates,setFxRates]=useState(EMPTY_FX);
+  const [showARS,setShowARS]=useState(false);
+  const [cash,setCash]=useState(EMPTY_CASH);
+  // Movimientos del mes (aporte/retiro/reubicación) por sección — permite
+  // separar la reubicación de capital de la variación real de precio en
+  // "Δ vs Mes Anterior". Mismo shape de 3 secciones que data/rows.
+  const [movements,setMovements]=useState({cedears:{...EMPTY_MOVEMENT},pesos:{...EMPTY_MOVEMENT},crypto:{...EMPTY_MOVEMENT}});
+  const [activeTab,setActiveTab]=useState("portfolio"); // "portfolio" | "eot"
+  const mepInputRef=useRef(null);
+  const [mepShake,setMepShake]=useState(false);
+  // Skeleton Sweep (Kinetic): el diagrama del Trading Pipeline usa JetBrains
+  // Mono, que carga por red (@import de Google Fonts). Hasta que resuelve,
+  // el SVG se vería con la fuente de respaldo por un instante — mostramos
+  // un shimmer en su lugar y revelamos el diagrama recién cuando está listo.
+  const [pipelineFontReady,setPipelineFontReady]=useState(false);
+  useEffect(()=>{
+    let cancelled=false;
+    if (typeof document!=="undefined" && document.fonts?.load) {
+      document.fonts.load("9px 'JetBrains Mono'")
+        .then(()=>document.fonts.ready)
+        .then(()=>{ if(!cancelled) setPipelineFontReady(true); })
+        .catch(()=>{ if(!cancelled) setPipelineFontReady(true); }); // no bloquear si falla
+    } else {
+      setPipelineFontReady(true); // navegador sin Font Loading API
+    }
+    return ()=>{ cancelled=true; };
+  },[]);
+
+  // "Last saved" — se actualiza solo, en vivo, cada vez que CUALQUIER parte de
+  // la app (esta pestaña u otra) escribe en localStorage. Ver wrapLocalStorageSetItem.
+  useEffect(() => {
+    function onSaved() { setLastSaved(getLastSaved()); }
+    window.addEventListener(LAST_SAVED_EVENT, onSaved);
+    return () => window.removeEventListener(LAST_SAVED_EVENT, onSaved);
+  }, []);
+
+  useEffect(()=>{
+    const loaded={};
+    for(const s of ["cedears","pesos","crypto"]){
+      try{
+        const r=localStorage.getItem(makeKey(s,year,month+1));
+        loaded[s]=r?JSON.parse(r):[emptyRow()];
+      } catch{ loaded[s]=[emptyRow()]; }
+    }
+    setData(loaded);
+    try{
+      const fx=localStorage.getItem(fxKey(year,month+1));
+      setFxRates(fx?JSON.parse(fx):EMPTY_FX);
+    } catch{ setFxRates(EMPTY_FX); }
+    try{
+      const c=localStorage.getItem(cashKey(year,month+1));
+      setCash(c?JSON.parse(c):EMPTY_CASH);
+    } catch{ setCash(EMPTY_CASH); }
+    const loadedMov={};
+    for(const s of ["cedears","pesos","crypto"]){
+      try{
+        const m=localStorage.getItem(movementsKey(s,year,month+1));
+        loadedMov[s]=m?JSON.parse(m):{...EMPTY_MOVEMENT};
+      } catch{ loadedMov[s]={...EMPTY_MOVEMENT}; }
+    }
+    setMovements(loadedMov);
+  },[year,month]);
+
+  useEffect(()=>{
+    if(!showCompare){setPrevData(null);return;}
+    let pm=month-1,py=year;
+    if(pm<0){pm=11;py-=1;}
+    const loaded={};
+    for(const s of ["cedears","pesos","crypto"]){
+      try{
+        const r=localStorage.getItem(makeKey(s,py,pm+1));
+        loaded[s]=r?JSON.parse(r):[];
+      } catch{ loaded[s]=[]; }
+    }
+    setPrevData(loaded);
+  },[showCompare,year,month]);
+
+  const save=useCallback(()=>{
+    setSaving(true);
+    // Delay mínimo para que el estado "Guardando…" sea perceptible (Status
+    // Pill de Kinetic: idle → loading → success necesita los 3 pasos
+    // visibles; el guardado real en localStorage es síncrono e instantáneo).
+    setTimeout(()=>{
+      for(const s of ["cedears","pesos","crypto"]){
+        try{ localStorage.setItem(makeKey(s,year,month+1),JSON.stringify(data[s])); }
+        catch(e){ console.error(e); }
+      }
+      try{ localStorage.setItem(fxKey(year,month+1),JSON.stringify(fxRates)); }
+      catch(e){ console.error(e); }
+      try{ localStorage.setItem(cashKey(year,month+1),JSON.stringify(cash)); }
+      catch(e){ console.error(e); }
+      for(const s of ["cedears","pesos","crypto"]){
+        try{ localStorage.setItem(movementsKey(s,year,month+1),JSON.stringify(movements[s])); }
+        catch(e){ console.error(e); }
+      }
+      setSaving(false);setSavedMsg("Guardado ✓");
+      setTimeout(()=>setSavedMsg(""),2500);
+    },320);
+  },[data,fxRates,cash,movements,year,month]);
+
+  function prevM(){if(month===0){setMonth(11);setYear(y=>y-1);}else setMonth(m=>m-1);}
+  const prevMonthLabel = `${MONTHS[month===0?11:month-1]} ${month===0?year-1:year}`;
+  function nextM(){if(month===11){setMonth(0);setYear(y=>y+1);}else setMonth(m=>m+1);}
+  // Supports both plain arrays and functional updaters (prev => newRows)
+  function updateSection(key, rowsOrUpdater) {
+    setData(d => {
+      const current = Array.isArray(d[key]) ? d[key] : [];
+      const next = typeof rowsOrUpdater === "function" ? rowsOrUpdater(current) : rowsOrUpdater;
+      return { ...d, [key]: Array.isArray(next) ? next : current };
+    });
+  }
+
+  function updateMovement(sectionKey, field, value) {
+    setMovements(m => ({
+      ...m,
+      [sectionKey]: { ...(m[sectionKey]||EMPTY_MOVEMENT), [field]: value },
+    }));
+  }
+
+  // FX helpers for summary cards — mirrors SectionTable logic exactly
+  const APP_FX_KEY = { cedears:"mep", pesos:"mep", crypto:"crypto" };
+  function sectionFxRate(s){ return parseFloat(fxRates?.[APP_FX_KEY[s]])||null; }
+  function sectionToDisplay(s, nativeVal){
+    if(nativeVal===null||nativeVal===undefined) return null;
+    const isARS = SECTION_META[s].currency==="ARS";
+    const needsConv = showARS !== isARS;
+    if(!needsConv) return nativeVal;
+    const rate = sectionFxRate(s);
+    if(!rate) return null;
+    if(showARS && !isARS) return nativeVal * rate;   // USD→ARS
+    if(!showARS && isARS) return nativeVal / rate;   // ARS→USD
+    return nativeVal;
+  }
+
+  // Totales nativos del mes anterior por sección — usados para "Δ vs Mes
+  // Anterior" (reemplaza el viejo concepto de costo base / P&L). Se cargan
+  // siempre (no dependen del toggle de comparación por fila).
+  const prevMonthNativeTotals = React.useMemo(() => {
+    const prevMonthIdx = month === 0 ? 11 : month - 1;   // 0-indexado
+    const prevYear      = month === 0 ? year - 1 : year;
+    const prevMonthNum  = prevMonthIdx + 1;              // 1-indexado, para makeKey
+    const totals = {};
+    for (const s of ["cedears","pesos","crypto"]) {
+      try {
+        const r = localStorage.getItem(makeKey(s, prevYear, prevMonthNum));
+        const rows = r ? JSON.parse(r) : [];
+        totals[s] = (Array.isArray(rows)?rows:[]).reduce((a,row)=>a+(calcValue(row).value||0),0);
+      } catch { totals[s] = 0; }
+    }
+    return totals;
+  }, [year, month]);
+
+  const sectionTotals=["cedears","pesos","crypto"].map(s=>{
+    const rows=Array.isArray(data[s])?data[s]:[];
+    const nativeVal=rows.reduce((a,r)=>a+(calcValue(r).value||0),0);
+    // Δ ajustado: al delta bruto (saldo actual − saldo mes anterior) le
+    // restamos el movimiento de capital cargado a mano (aporte/retiro/
+    // reubicación, en moneda nativa de la sección). Así "Δ vs Mes Anterior"
+    // refleja variación real de precio, no una entrada/salida de plata.
+    const movementNative=parseFloat(movements[s]?.amount)||0;
+    const nativeDelta=(nativeVal-(prevMonthNativeTotals[s]||0))-movementNative;
+    // sectionToDisplay returns null when rate is missing — keep null so UI shows "—"
+    const val=sectionToDisplay(s,nativeVal);
+    const deltaDisp=sectionToDisplay(s,nativeDelta);
+    const prevValDisp=sectionToDisplay(s,prevMonthNativeTotals[s]||0);
+    const deltaPct=(prevValDisp&&prevValDisp>0&&deltaDisp!==null)?(deltaDisp/prevValDisp)*100:null;
+    return{key:s,val:val??0,delta:deltaDisp??0,deltaPct,missingRate:val===null&&nativeVal>0,hasMovement:movementNative!==0};
+  });
+
+  const totalVal=sectionTotals.reduce((a,s)=>a+s.val,0);
+  // Cash panel totals (native currencies: Pesos=ARS, Dolares=USD)
+  const totalPesosARS = (parseFloat(cash.uala)||0) + (parseFloat(cash.mp)||0);
+  const totalDolaresUSD = (parseFloat(cash.fisicos)||0) + (parseFloat(cash.online_banco)||0) + (parseFloat(cash.online_iol)||0);
+  const mepRate = parseFloat(fxRates?.mep)||null;
+  const cclRate = parseFloat(fxRates?.ccl)||null;
+  // Convert for display
+  const pesosDisplay  = showARS ? totalPesosARS   : (mepRate ? totalPesosARS/mepRate : null);
+  const dolaresDisplay= showARS ? (mepRate ? totalDolaresUSD*mepRate : null) : totalDolaresUSD;
+
+  // Full chart data: investment sections + cash positions
+  const cashChartItems = [
+    pesosDisplay!==null && pesosDisplay>0   ? { name:"Pesos",   value:pesosDisplay,   color:"#22c55e", emoji:"💰" } : null,
+    dolaresDisplay!==null && dolaresDisplay>0 ? { name:"Dólares", value:dolaresDisplay, color:"#38bdf8", emoji:"💵" } : null,
+  ].filter(Boolean);
+  const chartData=[
+    ...sectionTotals.filter(s=>s.val>0).map(s=>({
+      name:SECTION_META[s.key].label,
+      value:s.val,
+      color:SECTION_META[s.key].color,
+      emoji:SECTION_META[s.key].emoji,
+    })),
+    ...cashChartItems,
+  ];
+  const chartTotal = chartData.reduce((a,d)=>a+d.value,0);
+
+  // ── Grand Total calculations ────────────────────────────────────────────────
+  // Helper: get native val for a section
+  const nativeValOf = s => (Array.isArray(data[s])?data[s]:[]).reduce((a,r)=>a+(calcValue(r).value||0),0);
+
+  // 1. Grand Pesos = cash Pesos (ARS) + Merval native ARS — always in ARS
+  const mervalNativeARS = nativeValOf("pesos");  // Merval is native ARS
+  const grandPesosARS   = totalPesosARS + mervalNativeARS;
+
+  // 2. Dolarizado = Dólares (USD) + CEDEARs (USD) + Crypto (USD) — toggle-aware
+  //    CEDEARs es ahora nativo USD (se carga en USD, ARS es referencia vía MEP)
+  const cedearNativeUSD  = nativeValOf("cedears");
+  const cryptoNativeUSD  = nativeValOf("crypto");
+  const grandDolarizadoUSD = totalDolaresUSD + cedearNativeUSD + cryptoNativeUSD;
+  // Dolarizado en ARS: CEDEARs ×MEP, Dólares ×MEP, Crypto ×dólar cripto
+  const cryptoRateApp = parseFloat(fxRates?.crypto)||null;
+  const grandDolarizadoDisp = showARS
+    ? (mepRate && cryptoRateApp
+        ? (cedearNativeUSD * mepRate + totalDolaresUSD * mepRate + cryptoNativeUSD * cryptoRateApp)
+        : null)
+    : grandDolarizadoUSD;
+
+  // 3. Total Portfolio — already computed as totalVal (respects USD/ARS toggle)
+
+  // 4. Δ vs Mes Anterior = CEDEARs + Merval + Crypto (reemplaza "Total Invested",
+  //    que dependía de un costo base que ya no existe). Mismo criterio que
+  //    confirmaste: suma de los deltas de las 3 secciones de inversión (sin cash).
+  const grandTotalDeltaDisp = (sectionTotals[0].delta!==null && sectionTotals[1].delta!==null && sectionTotals[2].delta!==null)
+    ? sectionTotals.reduce((a,s)=>a+(s.delta||0),0)
+    : null;
+
+  // Grand Total = Pesos (ARS→disp) + Dolarizado (USD→disp) fully converted
+  // Pesos side: grandPesosARS converted to display currency
+  const grandPesosDisp = showARS ? grandPesosARS : (mepRate ? grandPesosARS/mepRate : null);
+  // Grand Total All = Pesos side + Dolarizado side (both in display currency)
+  const grandTotalAllDisp = (grandPesosDisp!==null && grandDolarizadoDisp!==null)
+    ? grandPesosDisp + grandDolarizadoDisp
+    : null;
+
+  // Dolarización % = Dolarizado / Grand Total All
+  const dolarizacionPct = (grandDolarizadoDisp!==null && grandTotalAllDisp!==null && grandTotalAllDisp>0)
+    ? (grandDolarizadoDisp / grandTotalAllDisp) * 100
+    : null;
+
+  // % de Δ vs Mes Anterior, sobre el total invertido del mes anterior (mismo criterio que sectionTotals)
+  const prevInvestmentTotalDisp = ["cedears","pesos","crypto"].reduce((a,s)=>{
+    const p = sectionToDisplay(s, prevMonthNativeTotals[s]||0);
+    return (a===null||p===null) ? null : a+p;
+  }, 0);
+  const grandTotalDeltaPct = (prevInvestmentTotalDisp!==null && prevInvestmentTotalDisp>0 && grandTotalDeltaDisp!==null)
+    ? (grandTotalDeltaDisp/prevInvestmentTotalDisp)*100 : null;
+
+
+
+  // ── Export / Import ────────────────────────────────────────────────────────
+  function handleExport() {
+    // Collect ALL app data from localStorage — covers every namespace used across
+    // tabs: "portfolio:" (Portfolio + FX/Cash + comment notes), "expenses:"
+    // (Expenses tab + its comments), and "trading:" (Trading Desk: portfolio,
+    // active trades, historic trades, and MEP hoy).
+    save(); // flush current month first
+    const EXPORT_PREFIXES = ["portfolio:", "expenses:", "trading:"];
+    const keys = Object.keys(localStorage).filter(k => EXPORT_PREFIXES.some(p => k.startsWith(p)));
+    const payload = {};
+    keys.forEach(k => {
+      try { payload[k] = JSON.parse(localStorage.getItem(k)); } catch {}
+    });
+    const json = JSON.stringify(payload, null, 2);
+    const blob = new Blob([json], { type: "application/json" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    const date = new Date();
+    const stamp = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
+    a.href     = url;
+    a.download = `portfolio-backup-${stamp}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function handleImport(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = evt => {
+      try {
+        const payload = JSON.parse(evt.target.result);
+        if (typeof payload !== "object" || Array.isArray(payload))
+          throw new Error("Formato inválido");
+        // Write all keys to localStorage
+        Object.entries(payload).forEach(([k, v]) => {
+          try { localStorage.setItem(k, JSON.stringify(v)); } catch {}
+        });
+        alert("✓ Datos importados correctamente. La página se va a recargar para reflejar todo (Portfolio, Expenses y Trading).");
+        // Expenses y Trading (Portafolio Actual / Operaciones Activas) son
+        // componentes independientes que leen su propio estado inicial de
+        // localStorage solo al montarse — no escuchan cambios externos.
+        // Recargar la página es la forma más simple y confiable de garantizar
+        // que TODAS las pestañas reflejen los datos recién importados.
+        window.location.reload();
+      } catch(err) {
+        alert("Error al importar: " + err.message);
+        // Reset input so the same file can be re-imported if needed
+        e.target.value = "";
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  const btnBase={
+    background:C.card,border:`1px solid ${C.border}`,color:C.textSub,
+    cursor:"pointer",padding:"6px 13px",fontSize:18,borderRadius:9,
+    lineHeight:1,fontFamily:"sans-serif",
+  };
+
+  return (
+    <>
+      <style>{FONTS}</style>
+      <style>{`
+        *{box-sizing:border-box;margin:0;padding:0;}
+        body{background:${C.bg};color:${C.text};font-family:'DM Sans',sans-serif;}
+        input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;}
+        input::placeholder{color:${C.textMuted};}
+        ::-webkit-scrollbar{width:5px;height:5px;}
+        ::-webkit-scrollbar-track{background:transparent;}
+        ::-webkit-scrollbar-thumb{background:${C.border};border-radius:10px;}
+        @keyframes fadeUp{from{opacity:0;transform:translateY(14px);}to{opacity:1;transform:translateY(0);}}
+        .fu{animation:fadeUp 0.45s cubic-bezier(.16,1,.3,1) forwards;}
+        @keyframes pipeline-dash-flow{to{stroke-dashoffset:-22;}}
+        .pipeline-flow-path{stroke-dasharray:7 4;animation:pipeline-dash-flow 1.6s linear infinite;}
+        @keyframes pipeline-ring-pulse{0%{r:15;opacity:0.6;}100%{r:26;opacity:0;}}
+        .pipeline-pulse-ring{animation:pipeline-ring-pulse 2.5s ease-out infinite;}
+
+        /* ── Kinetic (kinetics.colorion.co) — botones y controles ──
+           Squish Button: compresión rápida al presionar (0.08s ease-out),
+           resorte con overshoot al soltar (0.5s cubic-bezier(.34,1.56,.64,1)).
+           Reemplaza el "transition:all 0.18s/0.2s" genérico de btnBase y de
+           todos los botones de ícono/acción del archivo. */
+        .kinetic-btn{
+          transition:transform 0.5s cubic-bezier(.34,1.56,.64,1),
+                     background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+        }
+        .kinetic-btn:active{
+          transform:scale(0.88);
+          transition:transform 0.08s ease-out;
+        }
+        /* Toggle Pills / Choice Chips: pop de resorte al activarse — para
+           tab switchers, selects de tipo pill, y filtros on/off. */
+        .kinetic-chip{
+          transition:transform 0.5s cubic-bezier(.34,1.56,.64,1),
+                     background 0.22s ease, color 0.22s ease, border-color 0.22s ease;
+        }
+        .kinetic-chip.kinetic-chip-on{ transform:scale(1.06); }
+        /* Delete / destructive icon buttons: mismo squish, radio de escala
+           un poco menor para no competir visualmente con el color de alerta. */
+        .kinetic-btn-sm:active{ transform:scale(0.85); transition:transform 0.08s ease-out; }
+
+        /* Status Pill / Success Check — botón Guardar. El check se dibuja de
+           0 a 1 con stroke-dashoffset (pathLength=1 normaliza el largo del
+           trazo a 1 sin importar el path real). El label pulsa suave
+           mientras saving=true para reforzar que algo está en curso. */
+        @keyframes kinetic-check-draw{from{stroke-dasharray:1;stroke-dashoffset:1;}to{stroke-dasharray:1;stroke-dashoffset:0;}}
+        .kinetic-check path{animation:kinetic-check-draw 0.38s cubic-bezier(.65,0,.35,1) forwards;}
+        @keyframes kinetic-pulse-dot{0%,100%{opacity:1;}50%{opacity:0.55;}}
+        .kinetic-pulse-dot{animation:kinetic-pulse-dot 0.9s ease-in-out infinite;}
+
+        /* Undo Snackbar — entra desde abajo con leve overshoot ("Toast
+           Overshoot" de Kinetic), en vez de aparecer/desaparecer seco. */
+        @keyframes kinetic-snackbar-in{
+          0%{opacity:0;transform:translate(-50%,60%);}
+          70%{opacity:1;transform:translate(-50%,94%);}
+          100%{opacity:1;transform:translate(-50%,100%);}
+        }
+        .kinetic-snackbar{animation:kinetic-snackbar-in 0.42s cubic-bezier(.34,1.56,.64,1) forwards;}
+
+        /* Badge Counter — al cambiar el número, el badge se remonta (key={n})
+           y este pop de resorte comunica "esto cambió" sin ser ruidoso. */
+        @keyframes kinetic-badge-pop{0%{transform:scale(0.6);opacity:0.4;}60%{transform:scale(1.12);opacity:1;}100%{transform:scale(1);opacity:1;}}
+        .kinetic-badge{display:inline-block;animation:kinetic-badge-pop 0.32s cubic-bezier(.34,1.56,.64,1);}
+
+        /* Error Shake — oscilación horizontal decreciente, para llamar la
+           atención sobre un campo que bloquea un cálculo (ej. FX rate
+           faltante). Retriggereable vía remount de className. */
+        @keyframes kinetic-shake-x{
+          10%,90%{transform:translateX(-1px);}
+          20%,80%{transform:translateX(2px);}
+          30%,50%,70%{transform:translateX(-4px);}
+          40%,60%{transform:translateX(4px);}
+        }
+        .kinetic-shake{animation:kinetic-shake-x 0.45s cubic-bezier(.36,.07,.19,.97) both;}
+
+        /* Skeleton Sweep — placeholder con shimmer mientras JetBrains Mono
+           carga por red, antes de revelar el diagrama del Trading Pipeline. */
+        .kinetic-skel{
+          background:linear-gradient(90deg,#141b30 25%,#1c2540 50%,#141b30 75%);
+          background-size:200% 100%;
+          animation:kinetic-shimmer-sweep 1.4s ease-in-out infinite;
+        }
+        @keyframes kinetic-shimmer-sweep{0%{background-position:200% 0;}100%{background-position:-200% 0;}}
+
+        /* Shine Sweep — franja diagonal translúcida que cruza la card al
+           pasar el mouse, para las cards de Grand Totals. */
+        .kinetic-shine{ position:relative; overflow:hidden; }
+        .kinetic-shine::before{
+          content:"";
+          position:absolute; top:0; left:-120%;
+          width:60%; height:100%;
+          transform:skewX(-20deg);
+          background:linear-gradient(90deg,transparent,rgba(240,240,245,0.08),transparent);
+          pointer-events:none;
+        }
+        .kinetic-shine:hover::before{
+          left:120%;
+          transition:left 0.9s cubic-bezier(.65,0,.35,1);
+        }
+      `}</style>
+
+      <div style={{minHeight:"100vh",background:C.bg}}>
+
+        {/* ── Top nav — dos filas: Fila 1 identidad/navegación, Fila 2
+             controles de vista y acciones (evita el header sobrecargado
+             horizontalmente) ── */}
+        <header style={{
+          position:"sticky",top:0,zIndex:200,
+          background:`${C.surface}ee`,backdropFilter:"blur(24px)",
+          borderBottom:`1px solid ${C.border}`,
+          padding:"10px 28px",display:"flex",flexDirection:"column",gap:10,
+        }}>
+          {/* Fila 1 — Identidad + navegación: marca, tabs, selector de mes */}
+          <div style={{display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
+          {/* Brand */}
+          <div style={{display:"flex",alignItems:"center",gap:10,marginRight:6}}>
+            <div style={{
+              width:34,height:34,borderRadius:11,
+              background:`linear-gradient(135deg,${C.accent},${C.crypto})`,
+              display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,
+              boxShadow:`0 0 18px ${C.accent}40`,
+            }}>📊</div>
+            <span style={{fontFamily:"'Nunito',sans-serif",fontWeight:700,fontSize:19,letterSpacing:"0",color:C.text}}>
+              Fin<span style={{color:C.accent}}>track</span>
+            </span>
+          </div>
+
+          <div style={{width:1,height:24,background:C.border}}/>
+
+          {/* Tab switcher */}
+          <div style={{display:"flex",alignItems:"center",gap:2,background:C.card,border:`1px solid ${C.border}`,borderRadius:9,padding:3}}>
+            {[{key:"portfolio",label:"Portfolio",icon:"📊"},{key:"eot",label:"EOT",icon:"📈"},{key:"expenses",label:"Expenses",icon:"💸"},{key:"trading",label:"Trading",icon:"⚡"}].map(t=>{
+              const active=activeTab===t.key;
+              return (
+                <button key={t.key} onClick={()=>setActiveTab(t.key)}
+                  className={active?"kinetic-chip kinetic-chip-on":"kinetic-chip"}
+                  style={{
+                    background:active?C.accent:"transparent",
+                    border:"none",
+                    color:active?"#fff":C.textMuted,
+                    fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:600,
+                    padding:"5px 14px",cursor:"pointer",borderRadius:7,
+                    display:"flex",alignItems:"center",gap:5,
+                  }}>
+                  <span>{t.icon}</span>{t.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Month selector — hidden on EOT tab */}
+          <div style={{display:activeTab==="portfolio"?"flex":"none",alignItems:"center",gap:8}}>
+            <div style={{width:1,height:24,background:C.border,marginRight:8}}/>
+            <button className="kinetic-btn" style={btnBase} onClick={prevM}
+              onMouseEnter={e=>{e.currentTarget.style.borderColor=C.accent;e.currentTarget.style.color=C.accent;}}
+              onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textSub;}}
+            >‹</button>
+            <div style={{
+              padding:"5px 18px",background:C.card,border:`1px solid ${C.border}`,
+              borderRadius:9,fontFamily:"'DM Mono',monospace",fontSize:13,
+              color:C.text,minWidth:168,textAlign:"center",fontWeight:500,letterSpacing:"0.02em",
+            }}>{MONTHS[month]} {year}</div>
+            <button className="kinetic-btn" style={btnBase} onClick={nextM}
+              onMouseEnter={e=>{e.currentTarget.style.borderColor=C.accent;e.currentTarget.style.color=C.accent;}}
+              onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textSub;}}
+            >›</button>
+          </div>
+          </div>
+
+          {/* Fila 2 — Controles de vista + acciones: ARS/USD, comparar,
+              import/export, guardar, last saved */}
+          <div style={{display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
+          {/* ARS / USD toggle — always visible */}
+          <div style={{
+            display:"flex",alignItems:"center",background:C.card,
+            border:`1px solid ${C.border}`,borderRadius:9,padding:3,gap:2,
+          }}>
+            {["USD","ARS"].map(cur=>{
+              const active=(cur==="ARS"?showARS:!showARS);
+              const color=cur==="ARS"?C.pesos:C.cedear;
+              return (
+                <button className={active?"kinetic-btn kinetic-chip-on":"kinetic-btn"} key={cur} onClick={()=>{
+                  const goingARS = cur==="ARS";
+                  setShowARS(goingARS);
+                  // Error Shake (Kinetic): si el usuario pasa a ARS pero hay
+                  // posiciones cargadas en USD (Cedears/Crypto) y todavía no
+                  // completó el dólar MEP, esos valores van a mostrar "—" sin
+                  // explicación visible. Agitamos el input de MEP y hacemos
+                  // scroll para que la causa sea obvia de inmediato.
+                  const hasUsdPositions = [...data.cedears,...data.crypto].some(r=>r.ticker && r.valor);
+                  if (goingARS && hasUsdPositions && !parseFloat(fxRates.mep)) {
+                    mepInputRef.current?.scrollIntoView({behavior:"smooth",block:"center"});
+                    setMepShake(true);
+                    setTimeout(()=>setMepShake(false),500);
+                  }
+                }} style={{
+                  background:active?`${color}20`:"transparent",
+                  border:`1px solid ${active?color+"60":"transparent"}`,
+                  color:active?color:C.textMuted,
+                  fontFamily:"'DM Mono',monospace",fontSize:12,fontWeight:600,
+                  padding:"5px 14px",cursor:"pointer",borderRadius:7,
+letterSpacing:"0.06em",
+                }}>{cur}</button>
+              );
+            })}
+          </div>
+
+          {/* Compare toggle */}
+          <button className="kinetic-btn" onClick={()=>setShowCompare(c=>!c)} style={{
+            background:showCompare?`${C.accent}1a`:"transparent",
+            border:`1px solid ${showCompare?C.accent:C.border}`,
+            color:showCompare?C.accent:C.textSub,
+            fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:500,
+            padding:"7px 18px",cursor:"pointer",borderRadius:9,
+            display:"flex",alignItems:"center",gap:7,
+          }}>
+            <span style={{fontSize:16}}>⇄</span> Comparar mes
+          </button>
+
+          {/* Export / Import */}
+          <div style={{display:"flex",alignItems:"center",gap:6}}>
+            {/* Hidden file input for import */}
+            <input
+              id="import-file-input" type="file" accept=".json"
+              style={{display:"none"}} onChange={handleImport}
+            />
+            <button className="kinetic-btn" onClick={()=>document.getElementById("import-file-input").click()} style={{
+              background:"transparent",border:`1px solid ${C.border}`,
+              color:C.textSub,fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:500,
+              padding:"7px 14px",cursor:"pointer",borderRadius:9,
+              display:"flex",alignItems:"center",gap:6,
+            }}
+              onMouseEnter={e=>{e.currentTarget.style.borderColor=C.pesos;e.currentTarget.style.color=C.pesos;}}
+              onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textSub;}}
+              title="Importar backup JSON"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+              Importar
+            </button>
+            <button className="kinetic-btn" onClick={handleExport} style={{
+              background:"transparent",border:`1px solid ${C.border}`,
+              color:C.textSub,fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:500,
+              padding:"7px 14px",cursor:"pointer",borderRadius:9,
+              display:"flex",alignItems:"center",gap:6,
+            }}
+              onMouseEnter={e=>{e.currentTarget.style.borderColor=C.cedear;e.currentTarget.style.color=C.cedear;}}
+              onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textSub;}}
+              title="Exportar todos los datos como JSON"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+              Exportar
+            </button>
+          </div>
+
+          <div style={{flex:1}}/>
+
+          {/* Save local — Kinetic Status Pill: idle → loading (pulso sutil) →
+              success (check animado, dibujo de trazo) */}
+          <button className="kinetic-btn" onClick={save} style={{
+            background:savedMsg?C.greenBg:`linear-gradient(135deg,${C.accent}dd,${C.crypto}88)`,
+            border:`1px solid ${savedMsg?C.green:C.accent+"88"}`,
+            color:savedMsg?C.green:C.text,
+            fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:600,
+            padding:"7px 22px",cursor:"pointer",borderRadius:9,
+            boxShadow:savedMsg?"none":`0 0 22px ${C.accent}30`,
+            display:"flex",alignItems:"center",gap:7,
+          }}>
+            {savedMsg && (
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" className="kinetic-check">
+                <path d="M4 12.5L9.5 18L20 6" stroke={C.green} strokeWidth="3.2"
+                  strokeLinecap="round" strokeLinejoin="round" pathLength="1"/>
+              </svg>
+            )}
+            <span className={saving?"kinetic-pulse-dot":undefined}>
+              {saving?"Guardando…":savedMsg||"Guardar"}
+            </span>
+          </button>
+
+          {/* Last saved — se actualiza en vivo con cada guardado, en cualquier
+              pestaña de la app. Útil para comparar qué dispositivo tiene el
+              backup más reciente antes de exportar/importar. */}
+          {lastSaved && (
+            <span title="Se actualiza automáticamente con cada guardado, en cualquier sección de la app" style={{
+              fontFamily:"'DM Mono',monospace", fontSize:11, color:C.textMuted,
+              display:"flex", alignItems:"center", gap:5, whiteSpace:"nowrap",
+            }}>
+              <span style={{width:6,height:6,borderRadius:"50%",background:C.green,flexShrink:0}}/>
+              Last saved: {formatLastSaved(lastSaved)}
+            </span>
+          )}
+          </div>
+        </header>
+
+        {activeTab==="eot"&&<EOTView showARS={showARS}/>}
+        {activeTab==="expenses"&&<ExpensesView/>}
+        {activeTab==="trading"&&<TradingView/>}
+        <main style={{display:activeTab==="portfolio"?"block":"none",padding:"26px 28px 52px",maxWidth:1380,margin:"0 auto"}}>
+
+          {/* ── Grand Totals ── */}
+          <div style={{marginBottom:22}} className="fu">
+            <div style={{
+              color:C.textMuted,fontSize:10,fontWeight:600,letterSpacing:"0.12em",
+              textTransform:"uppercase",marginBottom:12,
+            }}>Grand Totals</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:16}}>
+
+              {/* 1. Pesos */}
+              <div className="kinetic-shine" style={{
+                background:C.card,border:"1px solid #26262e",borderRadius:16,
+                padding:"20px 22px",position:"relative",overflow:"hidden",
+                boxShadow:"0 4px 24px #00000030",
+              }}>
+                <div style={{position:"absolute",top:0,left:0,right:0,height:3,background:"linear-gradient(90deg,#22c55e,#22c55e00)",borderRadius:"16px 16px 0 0"}}/>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                  <span style={{fontSize:16}}>💰</span>
+                  <span style={{fontSize:11,fontWeight:600,color:C.textMuted,letterSpacing:"0.06em",textTransform:"uppercase"}}>Pesos</span>
+                </div>
+                <div style={{fontFamily:"'Nunito',sans-serif",fontSize:26,fontWeight:700,color:"#f0f0f5",marginBottom:4,lineHeight:1}}>
+                  {fmt(grandPesosARS)}
+                </div>
+                <div style={{fontSize:10,color:"#5a5a72",fontFamily:"'DM Mono',monospace"}}>ARS · Efectivo + Merval</div>
+              </div>
+
+              {/* 2. Dolarizado */}
+              <div className="kinetic-shine" style={{
+                background:C.card,border:"1px solid #26262e",borderRadius:16,
+                padding:"20px 22px",position:"relative",overflow:"hidden",
+                boxShadow:"0 4px 24px #00000030",
+              }}>
+                <div style={{position:"absolute",top:0,left:0,right:0,height:3,background:"linear-gradient(90deg,#38bdf8,#38bdf800)",borderRadius:"16px 16px 0 0"}}/>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                  <span style={{fontSize:16}}>💵</span>
+                  <span style={{fontSize:11,fontWeight:600,color:C.textMuted,letterSpacing:"0.06em",textTransform:"uppercase"}}>Dolarizado</span>
+                </div>
+                <div style={{fontFamily:"'Nunito',sans-serif",fontSize:26,fontWeight:700,color:"#f0f0f5",marginBottom:4,lineHeight:1}}>
+                  {grandDolarizadoDisp!==null?fmt(grandDolarizadoDisp):"—"}
+                </div>
+                <div style={{fontSize:10,color:"#5a5a72",fontFamily:"'DM Mono',monospace"}}>
+                  {showARS?"ARS":"USD"} · Dólares + CEDEARs (÷ MEP) + Crypto
+                </div>
+              </div>
+
+
+              {/* Dolarización % */}
+              <div className="kinetic-shine" style={{
+                background:C.card,border:"1px solid #26262e",borderRadius:16,
+                padding:"20px 22px",position:"relative",overflow:"hidden",
+                boxShadow:"0 4px 24px #00000030",
+              }}>
+                <div style={{position:"absolute",top:0,left:0,right:0,height:3,background:"linear-gradient(90deg,#34d399,#34d39900)",borderRadius:"16px 16px 0 0"}}/>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                  <span style={{fontSize:16}}>🌐</span>
+                  <span style={{fontSize:11,fontWeight:600,color:C.textMuted,letterSpacing:"0.06em",textTransform:"uppercase"}}>Dolarización</span>
+                </div>
+                <div style={{fontFamily:"'Nunito',sans-serif",fontSize:32,fontWeight:800,color:"#34d399",marginBottom:4,lineHeight:1}}>
+                  {dolarizacionPct!==null?fmt(dolarizacionPct,1)+"%":"—"}
+                </div>
+                <div style={{fontSize:10,color:"#5a5a72",fontFamily:"'DM Mono',monospace"}}>
+                  CEDEARs + Crypto + Dólares
+                </div>
+                {dolarizacionPct!==null&&(
+                  <div style={{marginTop:10,height:4,background:C.border,borderRadius:99,overflow:"hidden"}}>
+                    <div style={{
+                      width:`${Math.min(dolarizacionPct,100)}%`,height:"100%",
+                      background:"linear-gradient(90deg,#34d399,#34d39960)",
+                      borderRadius:99,transition:"width 0.7s cubic-bezier(.16,1,.3,1)",
+                    }}/>
+                  </div>
+                )}
+              </div>
+
+              {/* 3. Grand Total */}
+              <div className="kinetic-shine" style={{
+                background:`linear-gradient(135deg,${C.card},${C.surface})`,
+                border:`1px solid ${C.border}`,borderRadius:16,
+                padding:"20px 22px",position:"relative",overflow:"hidden",
+                boxShadow:"0 4px 28px #00000050",
+              }}>
+                <div style={{position:"absolute",top:-20,right:-20,width:90,height:90,background:`radial-gradient(circle,${C.accent}22,transparent 70%)`,borderRadius:"50%"}}/>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                  <span style={{fontSize:16}}>📊</span>
+                  <span style={{fontSize:11,fontWeight:600,color:C.textMuted,letterSpacing:"0.06em",textTransform:"uppercase"}}>Grand Total</span>
+                </div>
+                <div style={{fontFamily:"'Nunito',sans-serif",fontSize:26,fontWeight:700,color:C.text,marginBottom:6,lineHeight:1}}>
+                  {grandTotalAllDisp!==null?fmt(grandTotalAllDisp):"—"}
+                </div>
+                <div style={{fontSize:10,color:C.textMuted,fontFamily:"'DM Mono',monospace"}}>
+                  {showARS?"ARS":"USD"} · Pesos + Dólares + CEDEARs + Merval + Crypto
+                </div>
+              </div>
+
+              {/* 4. Δ vs Mes Anterior — reemplaza "Total Invested" (ya no hay costo base) */}
+              <div className="kinetic-shine" style={{
+                background:C.card,border:`1px solid ${C.border}`,borderRadius:16,
+                padding:"20px 22px",position:"relative",overflow:"hidden",
+                boxShadow:"0 4px 24px #00000030",
+              }}>
+                <div style={{position:"absolute",top:0,left:0,right:0,height:3,background:`linear-gradient(90deg,${C.accent},${C.accent}00)`,borderRadius:"16px 16px 0 0"}}/>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                  <span style={{fontSize:16}}>📈</span>
+                  <span style={{fontSize:11,fontWeight:600,color:C.textMuted,letterSpacing:"0.06em",textTransform:"uppercase"}}>Δ vs Mes Anterior</span>
+                </div>
+                <div style={{fontFamily:"'Nunito',sans-serif",fontSize:26,fontWeight:700,color:C.text,marginBottom:6,lineHeight:1}}>
+                  {grandTotalDeltaDisp!==null?`${grandTotalDeltaDisp>0?"+":""}${fmt(grandTotalDeltaDisp)}`:"—"}
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                  {grandTotalDeltaPct!==null&&(
+                    <Badge color={pnlColor(grandTotalDeltaDisp)}>{grandTotalDeltaDisp>0?"+":""}{fmtPct(grandTotalDeltaPct)}</Badge>
+                  )}
+                  <span style={{fontSize:10,color:C.textMuted,fontFamily:"'DM Mono',monospace"}}>{showARS?"ARS":"USD"} · CEDEARs + Merval + Crypto</span>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          {/* ── Summary row ── */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:16,marginBottom:22}} className="fu">
+
+            {/* Per-section */}
+            {sectionTotals.map(s=>{
+              const meta=SECTION_META[s.key];
+              return (
+                <div key={s.key} style={{
+                  background:C.card,border:`1px solid ${C.border}`,borderRadius:16,
+                  padding:"20px 22px",position:"relative",overflow:"hidden",
+                  boxShadow:"0 4px 24px #00000030",
+                }}>
+                  <div style={{position:"absolute",top:0,left:0,right:0,height:3,background:`linear-gradient(90deg,${meta.color},${meta.color}00)`,borderRadius:"16px 16px 0 0"}}/>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
+                    <span style={{fontSize:18}}>{meta.emoji}</span>
+                    <span style={{fontSize:12,fontWeight:600,color:C.textSub}}>{meta.label}</span>
+                  </div>
+                  <div style={{fontFamily:"'DM Mono',monospace",fontSize:20,fontWeight:500,color:C.text,marginBottom:8}}>
+                    {s.val>0?fmt(s.val):"—"} <span style={{fontSize:11,color:C.textMuted}}>{showARS?"ARS":"USD"}</span>
+                  </div>
+                  <Badge color={pnlColor(s.delta)} title="vs mes anterior">{s.deltaPct!==null?`${s.delta>0?"+":""}${fmtPct(s.deltaPct)}`:"—"}</Badge>
+                </div>
+              );
+            })}
+
+            {/* Pesos cash card */}
+            {totalPesosARS>0&&(
+              <div style={{background:"#18181c",border:"1px solid #26262e",borderRadius:16,padding:"20px 22px",position:"relative",overflow:"hidden",boxShadow:"0 4px 24px #00000030"}}>
+                <div style={{position:"absolute",top:0,left:0,right:0,height:3,background:"linear-gradient(90deg,#22c55e,#22c55e00)",borderRadius:"16px 16px 0 0"}}/>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
+                  <span style={{fontSize:18}}>💰</span>
+                  <span style={{fontSize:12,fontWeight:600,color:"#a0a0b8"}}>Pesos</span>
+                </div>
+                <div style={{fontFamily:"'DM Mono',monospace",fontSize:18,fontWeight:500,color:"#f0f0f5",marginBottom:8}}>
+                  {pesosDisplay!==null?fmt(pesosDisplay):"—"} <span style={{fontSize:11,color:"#5a5a72"}}>{showARS?"ARS":"USD"}</span>
+                </div>
+                <div style={{fontSize:11,color:"#5a5a72",fontFamily:"'DM Mono',monospace"}}>
+                  {fmt(totalPesosARS)} ARS nativo
+                </div>
+              </div>
+            )}
+
+            {/* Dólares cash card */}
+            {totalDolaresUSD>0&&(
+              <div style={{background:"#18181c",border:"1px solid #26262e",borderRadius:16,padding:"20px 22px",position:"relative",overflow:"hidden",boxShadow:"0 4px 24px #00000030"}}>
+                <div style={{position:"absolute",top:0,left:0,right:0,height:3,background:"linear-gradient(90deg,#38bdf8,#38bdf800)",borderRadius:"16px 16px 0 0"}}/>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
+                  <span style={{fontSize:18}}>💵</span>
+                  <span style={{fontSize:12,fontWeight:600,color:"#a0a0b8"}}>Dólares</span>
+                </div>
+                <div style={{fontFamily:"'DM Mono',monospace",fontSize:18,fontWeight:500,color:"#f0f0f5",marginBottom:8}}>
+                  {dolaresDisplay!==null?fmt(dolaresDisplay):"—"} <span style={{fontSize:11,color:"#5a5a72"}}>{showARS?"ARS":"USD"}</span>
+                </div>
+                <div style={{fontSize:11,color:"#5a5a72",fontFamily:"'DM Mono',monospace"}}>
+                  {fmt(totalDolaresUSD)} USD nativo
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── Allocation panel ── */}
+          {chartData.length>0&&(
+            <div style={{
+              background:C.card,border:`1px solid ${C.border}`,borderRadius:16,
+              padding:"20px 26px",marginBottom:26,
+              display:"grid",gridTemplateColumns:"180px 1fr",gap:24,alignItems:"center",
+            }} className="fu">
+              <DonutChart data={chartData}/>
+              <div>
+                <div style={{color:C.textMuted,fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:16,fontWeight:600}}>Distribución</div>
+                {chartData.map((d,i)=>{
+                  const pct=chartTotal>0?(d.value/chartTotal)*100:0;
+                  return (
+                    <div key={i} style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
+                      <span style={{fontSize:15}}>{d.emoji}</span>
+                      <span style={{fontSize:12,color:C.textSub,width:130,fontWeight:500}}>{d.name}</span>
+                      <div style={{flex:1,height:7,background:C.border,borderRadius:99,overflow:"hidden"}}>
+                        <div style={{width:`${pct}%`,height:"100%",background:`linear-gradient(90deg,${d.color},${d.color}80)`,borderRadius:99,transition:"width 0.7s cubic-bezier(.16,1,.3,1)"}}/>
+                      </div>
+                      <span style={{fontSize:12,fontFamily:"'DM Mono',monospace",color:C.text,width:42,textAlign:"right"}}>{fmt(pct,1)}%</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+
+          {/* ── FX Rates panel ── */}
+          <div style={{
+            background:C.card,border:`1px solid ${C.border}`,borderRadius:16,
+            padding:"18px 24px",marginBottom:26,display:"flex",
+            alignItems:"center",gap:32,flexWrap:"wrap",
+          }} className="fu">
+            <div style={{display:"flex",flexDirection:"column",gap:2,minWidth:120}}>
+              <div style={{color:C.textMuted,fontSize:10,fontWeight:600,letterSpacing:"0.1em",textTransform:"uppercase"}}>Tipo de cambio</div>
+              <div style={{color:C.textSub,fontSize:11,marginTop:2}}>{MONTHS[month]} {year}</div>
+            </div>
+            <div style={{width:1,height:40,background:C.border,flexShrink:0}}/>
+            {[
+              {key:"mep",  label:"Dólar MEP",    color:C.cedear, prefix:"$"},
+              {key:"ccl",  label:"Dólar CCL",    color:C.pesos,  prefix:"$"},
+              {key:"crypto",label:"Dólar Crypto", color:C.crypto, prefix:"$"},
+            ].map(({key,label,color,prefix})=>(
+              <div key={key} style={{display:"flex",flexDirection:"column",gap:6,minWidth:160}}>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <div style={{width:8,height:8,borderRadius:2,background:color,flexShrink:0}}/>
+                  <span style={{fontSize:11,color:C.textMuted,fontWeight:500,letterSpacing:"0.06em",textTransform:"uppercase"}}>{label}</span>
+                </div>
+                <div ref={key==="mep"?mepInputRef:undefined}
+                  className={key==="mep"&&mepShake?"kinetic-shake":undefined}
+                  style={{display:"flex",alignItems:"center",gap:6,
+                  background:C.surface,border:`1px solid ${key==="mep"&&mepShake?C.red:C.border}`,borderRadius:9,
+                  padding:"7px 12px",transition:"border-color 0.2s",
+                }}
+                  onFocus={e=>e.currentTarget.style.borderColor=color}
+                  onBlur={e=>e.currentTarget.style.borderColor=C.border}
+                >
+                  <span style={{color:C.textMuted,fontSize:13,fontFamily:"'DM Mono',monospace"}}>{prefix}</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={fxRates[key]}
+                    onChange={e=>setFxRates(r=>({...r,[key]:e.target.value}))}
+                    placeholder="0,00"
+                    style={{
+                      background:"transparent",border:"none",outline:"none",
+                      color:C.text,fontFamily:"'DM Mono',monospace",fontSize:14,
+                      fontWeight:500,width:"100%",
+                    }}
+                  />
+                </div>
+                {fxRates[key]&&(
+                  <div style={{fontSize:10,color:C.textMuted,fontFamily:"'DM Mono',monospace",paddingLeft:2}}>
+                    ARS {fmt(parseFloat(fxRates[key]))}
+                  </div>
+                )}
+              </div>
+            ))}
+            <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:8,color:C.textMuted,fontSize:11}}>
+              <span style={{fontSize:14}}>ℹ</span>
+              <span>Se usarán para calcular valores en ARS / USD</span>
+            </div>
+          </div>
+
+          {/* ── Compare banner ── */}
+          {showCompare&&(
+            <div style={{
+              background:`${C.accent}0c`,border:`1px solid ${C.accent}30`,borderRadius:10,
+              padding:"10px 18px",marginBottom:22,
+              display:"flex",alignItems:"center",gap:10,fontSize:12,color:C.accent,fontWeight:500,
+            }}>
+              <span>⇄</span>
+              <span>Comparando con <strong>{prevMonthLabel}</strong> · Las variaciones se muestran debajo de cada sección</span>
+            </div>
+          )}
+
+          {/* ── Cash panels ── */}
+          <CashPanel cash={cash} setCash={setCash} showARS={showARS} fxRates={fxRates}/>
+
+          {/* ── Tables + Compare panels ── */}
+          {["cedears","pesos","crypto"].map((s,i)=>(
+            <div key={s} className="fu" style={{animationDelay:`${i*70}ms`}}>
+              <SectionTable
+                sectionKey={s}
+                data={Array.isArray(data[s])?data[s]:[]}
+                onChange={rows=>updateSection(s,rows)}
+                compareData={showCompare&&prevData?prevData[s]:null}
+                showCompare={showCompare}
+                fxRates={fxRates}
+                showARS={showARS}
+                year={year}
+                month={month+1}
+                movement={movements[s]||EMPTY_MOVEMENT}
+                onMovementChange={(field,value)=>updateMovement(s,field,value)}
+              />
+              {showCompare&&(
+                <ComparePanel
+                  sectionKey={s}
+                  currentData={Array.isArray(data[s])?data[s]:[]}
+                  prevData={prevData?prevData[s]:[]}
+                  fxRates={fxRates}
+                  showARS={showARS}
+                  prevMonthLabel={prevMonthLabel}
+                />
+              )}
+            </div>
+          ))}
+
+          {/* ── Trading Pipeline (diagrama) ── */}
+          <div style={{marginTop:32,marginBottom:22}} className="fu">
+            <div style={{
+              color:C.textMuted,fontSize:10,fontWeight:600,letterSpacing:"0.12em",
+              textTransform:"uppercase",marginBottom:12,
+            }}>Trading Pipeline</div>
+            <div style={{
+              background:"#0F1629",border:"1px solid #1E2D52",borderRadius:14,
+              overflow:"hidden",position:"relative",
+            }}>
+              {!pipelineFontReady && (
+                <div style={{padding:24,display:"flex",flexDirection:"column",gap:10}}>
+                  <div className="kinetic-skel" style={{height:180,borderRadius:10}}/>
+                  <div style={{display:"flex",gap:10}}>
+                    <div className="kinetic-skel" style={{height:64,borderRadius:10,flex:1}}/>
+                    <div className="kinetic-skel" style={{height:64,borderRadius:10,flex:1}}/>
+                    <div className="kinetic-skel" style={{height:64,borderRadius:10,flex:1}}/>
+                  </div>
+                </div>
+              )}
+              <svg viewBox="0 0 800 460" xmlns="http://www.w3.org/2000/svg" style={{width:"100%",height:pipelineFontReady?"auto":0,display:pipelineFontReady?"block":"none"}}>
+                <defs>
+                  <marker id="arrow-indigo" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+                    <path d="M0,0 L0,6 L8,3 z" fill="#6366F1"/>
+                  </marker>
+                  <marker id="arrow-violet" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+                    <path d="M0,0 L0,6 L8,3 z" fill="#8B5CF6"/>
+                  </marker>
+                  <marker id="arrow-emerald" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+                    <path d="M0,0 L0,6 L8,3 z" fill="#10B981"/>
+                  </marker>
+                  <marker id="arrow-amber" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+                    <path d="M0,0 L0,6 L8,3 z" fill="#F59E0B"/>
+                  </marker>
+                  <marker id="arrow-cyan" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+                    <path d="M0,0 L0,6 L8,3 z" fill="#06B6D4"/>
+                  </marker>
+                  <radialGradient id="center-glow" cx="50%" cy="50%" r="50%">
+                    <stop offset="0%" stopColor="#6366F1" stopOpacity="0.07"/>
+                    <stop offset="100%" stopColor="#070B18" stopOpacity="0"/>
+                  </radialGradient>
+                </defs>
+
+                <rect width="800" height="460" fill="#070B18"/>
+                <circle cx="400" cy="230" r="230" fill="url(#center-glow)"/>
+
+                <g stroke="#1E2D52" strokeWidth="0.5" opacity="0.35">
+                  <line x1="0" y1="115" x2="800" y2="115"/>
+                  <line x1="0" y1="230" x2="800" y2="230"/>
+                  <line x1="0" y1="345" x2="800" y2="345"/>
+                </g>
+
+                {/* Fintrack (left edge, lower) -> CDR Screener (top edge), routed around Portfolio Analyzer */}
+                <path d="M349,113 C260,140 200,220 185,268" stroke="#6366F1" strokeWidth="2" fill="none"
+                      markerEnd="url(#arrow-indigo)" className="pipeline-flow-path"/>
+                <text x="222" y="195" textAnchor="middle" fill="#6366F1" fontFamily="JetBrains Mono" fontSize="9">monitor holdings</text>
+
+                {/* CDR Screener (right edge) -> ValueScope (left edge) */}
+                <path d="M223,301 L340,301" stroke="#8B5CF6" strokeWidth="2" fill="none"
+                      markerEnd="url(#arrow-violet)" className="pipeline-flow-path"/>
+                <text x="281" y="291" textAnchor="middle" fill="#8B5CF6" fontFamily="JetBrains Mono" fontSize="9">candidate found</text>
+
+                {/* ValueScope (right edge) -> Swing Gates (left edge) */}
+                <path d="M460,301 L640,301" stroke="#10B981" strokeWidth="2" fill="none"
+                      markerEnd="url(#arrow-emerald)" className="pipeline-flow-path"/>
+                <text x="550" y="291" textAnchor="middle" fill="#10B981" fontFamily="JetBrains Mono" fontSize="9">fundamentals pass</text>
+
+                {/* Swing Gates (top edge) -> Fintrack (right edge), routed up and around Portfolio Analyzer */}
+                <path d="M712,268 C660,150 510,85 457,68" stroke="#F59E0B" strokeWidth="2" fill="none"
+                      markerEnd="url(#arrow-amber)" className="pipeline-flow-path"/>
+                <text x="610" y="165" textAnchor="middle" fill="#F59E0B" fontFamily="JetBrains Mono" fontSize="9">if new / approved</text>
+
+                {/* Portfolio Analyzer (top edge) -> Fintrack (bottom edge) */}
+                <path d="M400,155 L400,138" stroke="#06B6D4" strokeWidth="2.2" fill="none"
+                      markerEnd="url(#arrow-cyan)" className="pipeline-flow-path"/>
+                <text x="460" y="150" textAnchor="middle" fill="#06B6D4" fontFamily="JetBrains Mono" fontSize="9">informs</text>
+
+                {/* Fintrack (top center) */}
+                <circle cx="400" cy="80" r="58" fill="#0F1629" stroke="#06B6D4" strokeWidth="1.6"/>
+                <circle cx="400" cy="80" r="58" fill="none" stroke="#06B6D4" strokeWidth="0.5" opacity="0.4" className="pipeline-pulse-ring"/>
+                <text x="400" y="66" textAnchor="middle" fill="#06B6D4" fontFamily="JetBrains Mono" fontSize="20">⬡</text>
+                <text x="400" y="88" textAnchor="middle" fill="#fff" fontFamily="Inter" fontSize="13" fontWeight="700">Fintrack</text>
+                <text x="400" y="104" textAnchor="middle" fill="#64748B" fontFamily="JetBrains Mono" fontSize="8.5">source of truth</text>
+
+                {/* Portfolio Analyzer (directly below Fintrack, center) */}
+                <rect x="325" y="155" width="150" height="66" rx="10" fill="#0F1629" stroke="#8B5CF6" strokeWidth="1.4"/>
+                <text x="400" y="179" textAnchor="middle" fill="#8B5CF6" fontFamily="JetBrains Mono" fontSize="15">◎</text>
+                <text x="400" y="197" textAnchor="middle" fill="#E2E8F0" fontFamily="Inter" fontSize="11" fontWeight="600">Portfolio Analyzer</text>
+                <text x="400" y="211" textAnchor="middle" fill="#64748B" fontFamily="JetBrains Mono" fontSize="8">reads Fintrack holdings</text>
+
+                {/* CDR Screener (bottom-left) */}
+                <rect x="105" y="268" width="118" height="66" rx="10" fill="#0F1629" stroke="#6366F1" strokeWidth="1.4"/>
+                <text x="164" y="292" textAnchor="middle" fill="#6366F1" fontFamily="JetBrains Mono" fontSize="15">⟳</text>
+                <text x="164" y="310" textAnchor="middle" fill="#E2E8F0" fontFamily="Inter" fontSize="11" fontWeight="600">CDR Screener</text>
+                <text x="164" y="324" textAnchor="middle" fill="#64748B" fontFamily="JetBrains Mono" fontSize="8">scan · score</text>
+
+                {/* ValueScope (bottom-center) */}
+                <rect x="340" y="268" width="120" height="66" rx="10" fill="#0F1629" stroke="#10B981" strokeWidth="1.4"/>
+                <text x="400" y="292" textAnchor="middle" fill="#10B981" fontFamily="JetBrains Mono" fontSize="15">◈</text>
+                <text x="400" y="310" textAnchor="middle" fill="#E2E8F0" fontFamily="Inter" fontSize="11" fontWeight="600">ValueScope</text>
+                <text x="400" y="324" textAnchor="middle" fill="#64748B" fontFamily="JetBrains Mono" fontSize="8">deep analysis</text>
+
+                {/* Swing Gates (bottom-right) */}
+                <rect x="640" y="268" width="120" height="66" rx="10" fill="#0F1629" stroke="#F59E0B" strokeWidth="1.4"/>
+                <text x="700" y="292" textAnchor="middle" fill="#F59E0B" fontFamily="JetBrains Mono" fontSize="15">▲</text>
+                <text x="700" y="310" textAnchor="middle" fill="#E2E8F0" fontFamily="Inter" fontSize="11" fontWeight="600">Swing Gates</text>
+                <text x="700" y="324" textAnchor="middle" fill="#64748B" fontFamily="JetBrains Mono" fontSize="8">3-gate checklist</text>
+
+              </svg>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div style={{borderTop:`1px solid ${C.border}`,paddingTop:18,marginTop:4,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <span style={{
+                background:`${C.accent}18`,color:C.accent,
+                fontFamily:"'DM Mono',monospace",fontSize:10,fontWeight:600,
+                padding:"2px 8px",borderRadius:99,letterSpacing:"0.06em",
+              }}>v{APP_VERSION}</span>
+              <span style={{fontSize:11,color:C.textMuted}}>Fintrack · {MONTHS[month]} {year}</span>
+            </div>
+            <span style={{fontSize:11,color:C.textMuted}}>CEDEARs, Merval y Crypto: lookup local · Datos guardados en localStorage</span>
+          </div>
+        </main>
+      </div>
+    </>
+  );
+}
